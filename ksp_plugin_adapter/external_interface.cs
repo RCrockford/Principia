@@ -20,6 +20,58 @@ public class ExternalInterface {
     return result;
   }
 
+  public bool HasFlightPlan(string vessel_guid) {
+    ThrowOnError(
+        adapter_.Plugin().FlightPlanExists(
+            vessel_guid, out bool result));
+    return result;
+  }
+
+  public NavigationManoeuvre FlightPlanGetNextManoeuvre(string vessel_guid)
+  {
+    ThrowOnError(
+        adapter_.Plugin().FlightPlanExists(
+            vessel_guid, out bool plan_exists));
+    if (plan_exists)
+    {
+      ThrowOnError(
+          adapter_.Plugin().FlightPlanGetManoeuvre(
+              vessel_guid, 0, out NavigationManoeuvre result));
+      return result;
+    }
+    throw new Exception("UNAVAILABLE");
+  }
+
+  public double FlightPlanGetInitialTime(string vessel_guid)
+  {
+    ThrowOnError(
+        adapter_.Plugin().FlightPlanExists(
+            vessel_guid, out bool plan_exists));
+    if (plan_exists)
+    {
+      ThrowOnError(
+          adapter_.Plugin().FlightPlanGetInitialTime(
+              vessel_guid, out double result));
+      return result;
+    }
+    throw new Exception("UNAVAILABLE");
+  }
+
+  public double FlightPlanGetGuidance(string vessel_guid)
+  {
+    ThrowOnError(
+        adapter_.Plugin().FlightPlanExists(
+            vessel_guid, out bool plan_exists));
+    if (plan_exists)
+    {
+      ThrowOnError(
+          adapter_.Plugin().FlightPlanGetGuidance(
+              vessel_guid, 0, out double result));
+      return result;
+    }
+    throw new Exception("UNAVAILABLE");
+  }
+  
   public static ExternalInterface Get() {
     List<ScenarioModule> modules;
     try {
