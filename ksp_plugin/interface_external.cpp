@@ -258,5 +258,159 @@ Status principia__ExternalGetNearestPlannedCoastDegreesOfFreedom(
   return m.Return(OK());
 }
 
+Status principia__ExternalFlightPlanNumberOfManoeuvres(
+    Plugin const* const plugin,
+    char const* const vessel_guid,
+    int* const number_of_manoeuvres) {
+  journal::Method<journal::ExternalFlightPlanNumberOfManoeuvres> m{
+      {plugin,
+       vessel_guid},
+      {number_of_manoeuvres}};
+  if (plugin == nullptr) {
+    return m.Return(
+        MakeStatus(Error::INVALID_ARGUMENT, "|plugin| must not be null"));
+  }
+  if (!plugin->HasVessel(vessel_guid)) {
+    return m.Return(MakeStatus(
+        Error::NOT_FOUND,
+        "No vessel with GUID " + std::string(vessel_guid)));
+  }
+  Vessel const& vessel = *plugin->GetVessel(vessel_guid);
+  if (!vessel.has_flight_plan()) {
+    *number_of_manoeuvres = 0;
+  } else {
+    *number_of_manoeuvres = vessel.flight_plan().number_of_manœuvres();
+  }
+  return m.Return(OK());
+}
+
+Status principia__ExternalFlightPlanGetManoeuvreInitialTime(
+    Plugin const* const plugin,
+    char const* const vessel_guid,
+    int const manoeuvre_index,
+    double* const initial_time ) {
+  journal::Method<journal::ExternalFlightPlanGetManoeuvreInitialTime> m{
+      {plugin,
+       vessel_guid,
+       manoeuvre_index},
+      {initial_time}};
+  if (plugin == nullptr) {
+    return m.Return(
+        MakeStatus(Error::INVALID_ARGUMENT, "|plugin| must not be null"));
+  }
+  if (!plugin->HasVessel(vessel_guid)) {
+    return m.Return(MakeStatus(
+        Error::NOT_FOUND,
+        "No vessel with GUID " + std::string(vessel_guid)));
+  }
+  Vessel const& vessel = *plugin->GetVessel(vessel_guid);
+  if (!vessel.has_flight_plan()) {
+    return m.Return(MakeStatus(
+        Error::FAILED_PRECONDITION,
+        "Vessel " + vessel.ShortDebugString() + " has no flight plan"));
+  }
+  FlightPlan const& flight_plan = vessel.flight_plan();
+  if (manoeuvre_index >= flight_plan.number_of_manœuvres()) {
+    return m.Return(MakeStatus(
+        Error::OUT_OF_RANGE,
+        "|manoeuvre_index| " + std::to_string(manoeuvre_index) +
+            " out of range, vessel " + vessel.ShortDebugString() + " has " +
+            std::to_string(flight_plan.number_of_manœuvres()) +
+            u8" planned manœuvres"));
+  }
+  NavigationManœuvre const& manœuvre = flight_plan.GetManœuvre(manoeuvre_index);
+  *initial_time = ToGameTime(*plugin, manœuvre.initial_time());
+  return m.Return(OK());
+}
+
+Status principia__ExternalFlightPlanGetManoeuvreDuration(
+    Plugin const* const plugin,
+    char const* const vessel_guid,
+    int const manoeuvre_index,
+    double* const duration ) {
+  journal::Method<journal::ExternalFlightPlanGetManoeuvreDuration> m{
+      {plugin,
+       vessel_guid,
+       manoeuvre_index},
+      {duration}};
+  if (plugin == nullptr) {
+    return m.Return(
+        MakeStatus(Error::INVALID_ARGUMENT, "|plugin| must not be null"));
+  }
+  if (!plugin->HasVessel(vessel_guid)) {
+    return m.Return(MakeStatus(
+        Error::NOT_FOUND,
+        "No vessel with GUID " + std::string(vessel_guid)));
+  }
+  Vessel const& vessel = *plugin->GetVessel(vessel_guid);
+  if (!vessel.has_flight_plan()) {
+    return m.Return(MakeStatus(
+        Error::FAILED_PRECONDITION,
+        "Vessel " + vessel.ShortDebugString() + " has no flight plan"));
+  }
+  FlightPlan const& flight_plan = vessel.flight_plan();
+  if (manoeuvre_index >= flight_plan.number_of_manœuvres()) {
+    return m.Return(MakeStatus(
+        Error::OUT_OF_RANGE,
+        "|manoeuvre_index| " + std::to_string(manoeuvre_index) +
+            " out of range, vessel " + vessel.ShortDebugString() + " has " +
+            std::to_string(flight_plan.number_of_manœuvres()) +
+            u8" planned manœuvres"));
+  }
+  NavigationManœuvre const& manœuvre = flight_plan.GetManœuvre(manoeuvre_index);
+  *duration = manœuvre.duration() / Second;
+  return m.Return(OK());
+}
+
+Status principia__ExternalFlightPlanGetGuidance(
+    Plugin const* const plugin,
+    char const* const vessel_guid,
+    int const manoeuvre_index,
+    XYZ* const guidance ) {
+  journal::Method<journal::ExternalFlightPlanGetGuidance> m{
+      {plugin,
+       vessel_guid,
+       manoeuvre_index},
+      {guidance}};
+  if (plugin == nullptr) {
+    return m.Return(
+        MakeStatus(Error::INVALID_ARGUMENT, "|plugin| must not be null"));
+  }
+  if (!plugin->HasVessel(vessel_guid)) {
+    return m.Return(MakeStatus(
+        Error::NOT_FOUND,
+        "No vessel with GUID " + std::string(vessel_guid)));
+  }
+  Vessel const& vessel = *plugin->GetVessel(vessel_guid);
+  if (!vessel.has_flight_plan()) {
+    return m.Return(MakeStatus(
+        Error::FAILED_PRECONDITION,
+        "Vessel " + vessel.ShortDebugString() + " has no flight plan"));
+  }
+  FlightPlan const& flight_plan = vessel.flight_plan();
+  if (manoeuvre_index >= flight_plan.number_of_manœuvres()) {
+    return m.Return(MakeStatus(
+        Error::OUT_OF_RANGE,
+        "|manoeuvre_index| " + std::to_string(manoeuvre_index) +
+            " out of range, vessel " + vessel.ShortDebugString() + " has " +
+            std::to_string(flight_plan.number_of_manœuvres()) +
+            u8" planned manœuvres"));
+  }
+  NavigationManœuvre const& manœuvre = flight_plan.GetManœuvre(manoeuvre_index);
+  if (manœuvre.is_inertially_fixed()) {
+    *guidance = plugin->renderer().BarycentricToWorld(
+                    plugin->PlanetariumRotation())(manœuvre.InertialDirection());
+  } else {
+    *guidance = plugin->renderer().FrenetToWorld(
+                    *plugin->GetVessel(vessel_guid),
+                    *manœuvre.frame(),
+                    plugin->PlanetariumRotation())(manœuvre.direction());
+  }
+  if (!manœuvre.IsSingularity()) {
+    *guidance *= manœuvre.Δv();
+  }
+  return m.Return(OK());
+}
+
 }  // namespace interface
 }  // namespace principia

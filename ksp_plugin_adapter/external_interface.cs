@@ -20,84 +20,35 @@ public class ExternalInterface {
     return result;
   }
 
-  public bool FlightPlanExists(string vessel_guid) {
-    ThrowOnError(
-        adapter_.Plugin().FlightPlanExists(
-            vessel_guid, out bool result));
-    return result;
-  }
-
   public int FlightPlanNumberOfManoeuvres(string vessel_guid) {
     ThrowOnError(
-        adapter_.Plugin().FlightPlanNumberOfManoeuvres(
+        adapter_.Plugin().ExternalFlightPlanNumberOfManoeuvres(
             vessel_guid, out int result));
     return result;
   }
 
   public double FlightPlanGetManoeuvreInitialTime(string vessel_guid, int index)
   {
-    ThrowOnError(
-        adapter_.Plugin().FlightPlanExists(
-            vessel_guid, out bool plan_exists));
-    if (plan_exists)
-    {
       ThrowOnError(
-          adapter_.Plugin().FlightPlanGetManoeuvre(
-              vessel_guid, index, out NavigationManoeuvre manoeuvre));
-
-      return ToGameTime(manoeuvre.burn.initial_time);
-    }
-    throw new ArgumentOutOfRangeException("OUT_OF_RANGE");
-  }
-
-  public double FlightPlanGetManoeuvreDeltaV(string vessel_guid)
-  {
-    ThrowOnError(
-        adapter_.Plugin().FlightPlanExists(
-            vessel_guid, out bool plan_exists));
-    if (plan_exists)
-    {
-      ThrowOnError(
-          adapter_.Plugin().FlightPlanGetManoeuvre(
-              vessel_guid, index, out NavigationManoeuvre manoeuvre));
-
-      return sqrt(manoeuvre.burn.delta_v.x * manoeuvre.burn.delta_v.x +
-                  manoeuvre.burn.delta_v.y * manoeuvre.burn.delta_v.y +
-                  manoeuvre.burn.delta_v.z * manoeuvre.burn.delta_v.z);
-    }
-    throw new ArgumentOutOfRangeException("OUT_OF_RANGE");
+          adapter_.Plugin().ExternalFlightPlanGetManoeuvreInitialTime(
+              vessel_guid, index, out double result));
+      return result;
   }
 
   public double FlightPlanGetManoeuvreDuration(string vessel_guid)
   {
     ThrowOnError(
-        adapter_.Plugin().FlightPlanExists(
-            vessel_guid, out bool plan_exists));
-    if (plan_exists)
-    {
-      ThrowOnError(
-          adapter_.Plugin().FlightPlanGetManoeuvre(
-              vessel_guid, index, out NavigationManoeuvre manoeuvre));
-
-      return ToGameTime(manoeuvre.duration);
-    }
-    throw new ArgumentOutOfRangeException("OUT_OF_RANGE");
+        adapter_.Plugin().ExternalFlightPlanGetManoeuvreDuration(
+            vessel_guid, index, out double result));
+    return result;
   }
 
   public XYZ FlightPlanGetManoeuvreGuidance(string vessel_guid)
   {
     ThrowOnError(
-        adapter_.Plugin().FlightPlanExists(
-            vessel_guid, out bool plan_exists));
-    if (plan_exists)
-    {
-      ThrowOnError(
-          adapter_.Plugin().FlightPlanGetGuidance(
-              vessel_guid, index, out XYZ result));
-
-      return result;
-    }
-    throw new ArgumentOutOfRangeException("OUT_OF_RANGE");
+        adapter_.Plugin().ExternalFlightPlanGetGuidance(
+            vessel_guid, index, out XYZ result));
+    return result;
   }
 
   public static ExternalInterface Get() {
