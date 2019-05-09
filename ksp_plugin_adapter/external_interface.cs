@@ -35,7 +35,7 @@ public class ExternalInterface {
       return result;
   }
 
-  public double FlightPlanGetManoeuvreDuration(string vessel_guid)
+  public double FlightPlanGetManoeuvreDuration(string vessel_guid, int index)
   {
     ThrowOnError(
         adapter_.Plugin().ExternalFlightPlanGetManoeuvreDuration(
@@ -43,7 +43,7 @@ public class ExternalInterface {
     return result;
   }
 
-  public XYZ FlightPlanGetManoeuvreGuidance(string vessel_guid)
+  public XYZ FlightPlanGetManoeuvreGuidance(string vessel_guid, int index)
   {
     ThrowOnError(
         adapter_.Plugin().ExternalFlightPlanGetGuidance(
