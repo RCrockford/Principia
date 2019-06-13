@@ -20,7 +20,6 @@ using base::UniqueArray;
 using geometry::AngularVelocity;
 using ksp_plugin::FlightPlan;
 using ksp_plugin::Navigation;
-using ksp_plugin::NavigationManœuvre;
 using ksp_plugin::Vessel;
 using physics::BodyCentredNonRotatingDynamicFrame;
 using physics::ComputeApsides;
@@ -28,6 +27,8 @@ using physics::DiscreteTrajectory;
 using physics::OblateBody;
 using physics::RigidMotion;
 using physics::RigidTransformation;
+using ksp_plugin::internal_frames::NavigationManœuvre;
+
 
 namespace {
 
@@ -398,18 +399,12 @@ Status principia__ExternalFlightPlanGetGuidance(
             u8" planned manœuvres"));
   }
   NavigationManœuvre const& manœuvre = flight_plan.GetManœuvre(manoeuvre_index);
-  Vector<double, World> direction;
-  if (manœuvre.is_inertially_fixed()) {
-	direction = plugin->renderer().BarycentricToWorld(
-                    plugin->PlanetariumRotation())(manœuvre.InertialDirection());
-  } else {
-    direction = plugin->renderer().FrenetToWorld(
-                    *plugin->GetVessel(vessel_guid),
-                    *manœuvre.frame(),
-                    plugin->PlanetariumRotation())(manœuvre.direction());
-  }
+  Vector<double, World> direction = plugin->renderer().FrenetToWorld(
+      *plugin->GetVessel(vessel_guid),
+      *manœuvre.frame(),
+      plugin->PlanetariumRotation())(manœuvre.direction());
   if (!manœuvre.IsSingular()) {
-    *guidance = ToXYZ(direction * manœuvre.Δv());
+    *guidance = ToXYZ(direction * manœuvre.Δv().Norm());
   } else {
 	*guidance = ToXYZ(direction);
   }
