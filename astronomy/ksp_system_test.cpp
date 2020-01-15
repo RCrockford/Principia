@@ -28,6 +28,7 @@ using base::not_null;
 using base::OFStream;
 using geometry::BarycentreCalculator;
 using geometry::Frame;
+using geometry::Inertial;
 using geometry::Instant;
 using geometry::Position;
 using geometry::Sign;
@@ -64,9 +65,7 @@ using ::testing::Lt;
 
 namespace astronomy {
 
-using KSP = Frame<serialization::Frame::TestTag,
-                  serialization::Frame::TEST,
-                  /*frame_is_inertial=*/true>;
+using KSP = Frame<enum class KSPTag, Inertial>;
 
 class KSPSystem {
  protected:
@@ -234,7 +233,7 @@ TEST_F(KSPSystemTest, KerbalSystem) {
   std::vector<double> pol_bop_separations_in_m;
 
   for (not_null<MassiveBody const*> const moon : joolian_moons_) {
-    last_separation_changes.emplace(moon, Sign(+1));
+    last_separation_changes.emplace(moon, Sign::Positive());
   }
   for (int n = 0;
        t < a_century_hence;
@@ -380,10 +379,6 @@ class KSPSystemConvergenceTest
                      "ksp_system_convergence.generated.wl");
   }
 
-  static void TearDownTestCase() {
-    file_.~OFStream();
-  }
-
  protected:
   FixedStepSizeIntegrator<
       Ephemeris<KSP>::NewtonianMotionEquation> const&
@@ -437,9 +432,7 @@ TEST_P(KSPSystemConvergenceTest, DISABLED_Convergence) {
 
   std::map<std::string, std::vector<RelativeDegreesOfFreedom<KSP>>>
       name_to_errors;
-  for (auto const& pair : name_to_degrees_of_freedom) {
-    auto const& name = pair.first;
-    auto const& degrees_of_freedom = pair.second;
+  for (auto const& [name, degrees_of_freedom] : name_to_degrees_of_freedom) {
     CHECK_EQ(degrees_of_freedom.size(), iterations());
     for (int i = 1; i < iterations(); ++i) {
       name_to_errors[name].emplace_back(degrees_of_freedom[i] -
@@ -454,9 +447,7 @@ TEST_P(KSPSystemConvergenceTest, DISABLED_Convergence) {
   std::vector<std::string> worst_body(iterations() - 1);
   MathematicaEntries mathematica_entries;
   for (int i = 0; i < iterations() - 1; ++i) {
-    for (auto const& pair : name_to_errors) {
-      auto const& name = pair.first;
-      auto const& errors = pair.second;
+    for (auto const& [name, errors] : name_to_errors) {
       if (position_errors[i] < errors[i].displacement().Norm()) {
         worst_body[i] = name;
       }

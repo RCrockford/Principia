@@ -78,7 +78,7 @@ message SymmetricBilinearForm {
 message LinearMap {
   required Frame from_frame = 1;
   required Frame to_frame = 2;
-  extensions 1000 to 1999;  // Last used: 1003.
+  extensions 1000 to 1999;  // Last used: 1004.
 }
 
 message Identity {
@@ -91,8 +91,12 @@ message OrthogonalMap {
   extend LinearMap {
     optional OrthogonalMap extension = 1001;
   }
-  required Sign determinant = 1;
-  required Rotation rotation = 2;
+  optional Rotation rotation = 2;
+  optional Quaternion quaternion = 3;  // Added in Frege.
+
+  // Pre-Frege.
+  reserved 1;
+  reserved "determinant";
 }
 
 message Permutation {
@@ -132,6 +136,15 @@ message Rotation {
   required Quaternion quaternion = 1;
 }
 
+message Signature {
+  extend LinearMap {
+    optional Signature extension = 1004;
+  }
+  required Sign x = 1;
+  required Sign y = 2;
+  required Sign z = 3;
+}
+
 // Frames follow.  Note that the names of the enum types are part of the
 // serialized representation (|tag_type_fingerprint| field).
 
@@ -145,12 +158,14 @@ message Frame {
     BODY_WORLD = 9;
     // BUBBLE = 13;
     CAMERA = 14;
+    CAMERA_REFERENCE = 17;
     CELESTIAL_SPHERE = 8;
     MAIN_BODY_CENTRED = 15;
     NAVBALL = 10;
     NAVIGATION = 4;
+    NON_ROTATING_PILE_UP = 11;
     // PRE_BOREL_BARYCENTRIC = 3;
-    RIGID_PILE_UP = 11;
+    RIGID_PART = 16;
     WORLD = 5;
     WORLD_SUN = 6;
   }
@@ -158,6 +173,7 @@ message Frame {
   // The frame tags used in the physics library.
   enum PhysicsTag {
     FRENET = 1;
+    PRINCIPAL_AXES = 2;
   }
 
   // The frame tags used in the astronomical simulations.

@@ -36,11 +36,17 @@ using base::make_not_null_unique;
 using base::ParseFromBytes;
 using geometry::AngularVelocity;
 using geometry::Bivector;
+using geometry::DeduceSignReversingOrientation;
 using geometry::Displacement;
+using geometry::Frame;
+using geometry::Handedness;
 using geometry::LinearMap;
+using geometry::NonInertial;
 using geometry::Perspective;
 using geometry::RigidTransformation;
 using geometry::Rotation;
+using geometry::Sign;
+using geometry::Signature;
 using geometry::Vector;
 using geometry::Velocity;
 using physics::MassiveBody;
@@ -71,6 +77,8 @@ using ::testing::ReturnRef;
 using ::testing::SizeIs;
 
 class PlanetariumTest : public ::testing::Test {
+  using LeftNavigation =
+    Frame<enum class LeftNavigationTag, NonInertial, Handedness::Left>;
  protected:
   PlanetariumTest()
       :  // The camera is located as {0, 20, 0} and is looking along -y.
@@ -79,12 +87,16 @@ class PlanetariumTest : public ::testing::Test {
                 Navigation::origin + Displacement<Navigation>(
                                          {0 * Metre, 20 * Metre, 0 * Metre}),
                 Camera::origin,
-                Rotation<Navigation, Camera>(
-                    Vector<double, Navigation>({1, 0, 0}),
-                    Vector<double, Navigation>({0, 0, 1}),
-                    Bivector<double, Navigation>({0, -1, 0}))
-                    .Forget()),
-            /*focal=*/5 * Metre),
+                Rotation<LeftNavigation, Camera>(
+                    Vector<double, LeftNavigation>({ 1, 0, 0 }),
+                    Vector<double, LeftNavigation>({ 0, 0, 1 }),
+                    Bivector<double, LeftNavigation>({ 0, -1, 0 }))
+                    .Forget<OrthogonalMap>() *
+                Signature<Navigation, LeftNavigation>(
+                    Sign::Positive(),
+                    Sign::Positive(),
+                    DeduceSignReversingOrientation{}).Forget<OrthogonalMap>()),
+          /*focal=*/5 * Metre),
         // A body of radius 1 m located at the origin.
         body_(MassiveBody::Parameters(1 * Kilogram),
               RotatingBody<Barycentric>::Parameters(
@@ -100,8 +112,8 @@ class PlanetariumTest : public ::testing::Test {
     EXPECT_CALL(plotting_frame_, ToThisFrameAtTime(_))
         .WillRepeatedly(Return(RigidMotion<Barycentric, Navigation>(
             RigidTransformation<Barycentric, Navigation>::Identity(),
-            AngularVelocity<Barycentric>(),
-            Velocity<Barycentric>())));
+            Barycentric::nonrotating,
+            Barycentric::unmoving)));
     EXPECT_CALL(ephemeris_, bodies()).WillRepeatedly(ReturnRef(bodies_));
     EXPECT_CALL(ephemeris_, trajectory(_))
         .WillRepeatedly(Return(&continuous_trajectory_));
@@ -152,8 +164,8 @@ TEST_F(PlanetariumTest, PlotMethod0) {
   Planetarium planetarium(
       parameters, perspective_, &ephemeris_, &plotting_frame_);
   auto const rp2_lines =
-      planetarium.PlotMethod0(discrete_trajectory->Begin(),
-                              discrete_trajectory->End(),
+      planetarium.PlotMethod0(discrete_trajectory->begin(),
+                              discrete_trajectory->end(),
                               t0_ + 10 * Second,
                               /*reverse=*/false);
 
@@ -172,7 +184,7 @@ TEST_F(PlanetariumTest, PlotMethod0) {
       EXPECT_THAT(rp2_point.x(),
                   AllOf(Ge(-5.0 / Sqrt(3.0) * Metre),
                         Le(5.0 / Sqrt(3.0) * Metre)));
-      EXPECT_THAT(rp2_point.y(), VanishesBefore(1 * Metre, 5, 13));
+      EXPECT_THAT(rp2_point.y(), VanishesBefore(1 * Metre, 0, 13));
     }
   }
 }
@@ -193,8 +205,8 @@ TEST_F(PlanetariumTest, PlotMethod1) {
   Planetarium planetarium(
       parameters, perspective_, &ephemeris_, &plotting_frame_);
   auto const rp2_lines =
-      planetarium.PlotMethod1(discrete_trajectory->Begin(),
-                              discrete_trajectory->End(),
+      planetarium.PlotMethod1(discrete_trajectory->begin(),
+                              discrete_trajectory->end(),
                               t0_ + 10 * Second,
                               /*reverse=*/false);
 
@@ -224,8 +236,8 @@ TEST_F(PlanetariumTest, PlotMethod2) {
   Planetarium planetarium(
       parameters, perspective_, &ephemeris_, &plotting_frame_);
   auto const rp2_lines =
-      planetarium.PlotMethod2(discrete_trajectory->Begin(),
-                              discrete_trajectory->End(),
+      planetarium.PlotMethod2(discrete_trajectory->begin(),
+                              discrete_trajectory->end(),
                               t0_ + 10 * Second,
                               /*reverse=*/false);
 
@@ -276,9 +288,9 @@ TEST_F(PlanetariumTest, RealSolarSystem) {
                           ephemeris.get(),
                           plotting_frame.get());
   auto const rp2_lines =
-      planetarium.PlotMethod2(discrete_trajectory->Begin(),
-                              discrete_trajectory->End(),
-                              discrete_trajectory->last().time(),
+      planetarium.PlotMethod2(discrete_trajectory->begin(),
+                              discrete_trajectory->end(),
+                              discrete_trajectory->back().time,
                               /*reverse=*/false);
 
   EXPECT_EQ(2, rp2_lines.size());

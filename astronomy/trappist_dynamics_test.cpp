@@ -60,6 +60,8 @@ using physics::Ephemeris;
 using physics::KeplerianElements;
 using physics::KeplerOrbit;
 using physics::MassiveBody;
+using physics::ParseGravityModel;
+using physics::ParseInitialState;
 using physics::RelativeDegreesOfFreedom;
 using physics::SolarSystem;
 using quantities::Abs;
@@ -1027,8 +1029,8 @@ class TrappistDynamicsTest : public ::testing::Test {
       Sign const xy_displacement_derivative_sign(xy_displacement_derivative(t));
       if (relative_dof.displacement().coordinates().z > 0.0 * Metre &&
           last_t &&
-          xy_displacement_derivative_sign == Sign(1) &&
-          last_xy_displacement_derivative_sign == Sign(-1)) {
+          xy_displacement_derivative_sign.is_positive() &&
+          last_xy_displacement_derivative_sign == Sign::Negative()) {
         Instant const transit = Bisect(xy_displacement_derivative, *last_t, t);
         transits.push_back(transit);
       }
@@ -1046,9 +1048,7 @@ class TrappistDynamicsTest : public ::testing::Test {
     Time total_Δt;
     std::string transit_with_max_Δt;
     int number_of_observations = 0;
-    for (auto const& pair : observations) {
-      auto const& name = pair.first;
-      auto const& observed_transits = pair.second;
+    for (auto const& [name, observed_transits] : observations) {
       auto const& computed_transits = computations.at(name);
       if (computed_transits.empty()) {
         return std::numeric_limits<double>::infinity();
@@ -1184,7 +1184,7 @@ TEST_F(TrappistDynamicsTest, MathematicaPeriods) {
   }
 }
 
-TEST_F(TrappistDynamicsTest, MathematicaTransits) {
+TEST_F(TrappistDynamicsTest, DISABLED_MathematicaTransits) {
   // Run this test with different ephemerides to make sure that the system is
   // converged.
   OFStream file(TEMP_DIR / "trappist_transits.generated.wl");
@@ -1308,12 +1308,16 @@ TEST_F(TrappistDynamicsTest, PlanetBPlanetDAlignment) {
 }
 #endif
 
-TEST_F(TrappistDynamicsTest, DISABLED_Optimization) {
-  SolarSystem<Sky> const system(
-      SOLUTION_DIR / "astronomy" / "trappist_gravity_model.proto.txt",
+TEST_F(TrappistDynamicsTest, DISABLED_SECULAR_Optimization) {
+  auto const gravity_model_message = ParseGravityModel(
+      SOLUTION_DIR / "astronomy" / "trappist_gravity_model.proto.txt");
+  auto const preoptimization_initial_state_message = ParseInitialState(
       SOLUTION_DIR / "astronomy" /
-          "trappist_preoptimization_initial_state_jd_2457000_000000000"
-          ".proto.txt");
+      "trappist_preoptimization_initial_state_jd_2457000_000000000"
+      ".proto.txt");
+
+  SolarSystem<Sky> const system(gravity_model_message,
+                                preoptimization_initial_state_message);
 
   auto planet_names = system.names();
   planet_names.erase(
@@ -1324,27 +1328,34 @@ TEST_F(TrappistDynamicsTest, DISABLED_Optimization) {
         system.keplerian_initial_state_message(planet_name).elements()));
   }
 
-  auto compute_fitness =
-      [&planet_names, &system](genetics::Genome const& genome,
-                               std::string& info) {
-        auto modified_system = system;
-        auto const& elements = genome.elements();
-        for (int i = 0; i < planet_names.size(); ++i) {
-          modified_system.ReplaceElements(planet_names[i], elements[i]);
-        }
-        double const χ² = ProlongAndComputeTransitsχ²(modified_system, info);
+  auto compute_fitness = [&planet_names,
+                          &gravity_model_message,
+                          &preoptimization_initial_state_message](
+                             genetics::Genome const& genome,
+                             std::string& info) {
+    SolarSystem<Sky> modified_system(gravity_model_message,
+                                     preoptimization_initial_state_message);
+    auto const& elements = genome.elements();
+    for (int i = 0; i < planet_names.size(); ++i) {
+      modified_system.ReplaceElements(planet_names[i], elements[i]);
+    }
+    double const χ² = ProlongAndComputeTransitsχ²(modified_system, info);
 
-        // This is the place where we cook the sausage.  This function must be
-        // steep enough to efficiently separate the wheat from the chaff without
-        // leading to monoculture.
-        return 1 / χ²;
-      };
+    // This is the place where we cook the sausage.  This function must be
+    // steep enough to efficiently separate the wheat from the chaff without
+    // leading to monoculture.
+    return 1 / χ²;
+  };
 
   auto compute_log_pdf =
-      [&elements, &planet_names, &system](
+      [&elements,
+       &planet_names,
+       &gravity_model_message,
+       &preoptimization_initial_state_message](
           deмcmc::SystemParameters const& system_parameters,
           std::string& info) {
-        auto modified_system = system;
+        SolarSystem<Sky> modified_system(gravity_model_message,
+                                         preoptimization_initial_state_message);
         for (int i = 0; i < planet_names.size(); ++i) {
           modified_system.ReplaceElements(
               planet_names[i],

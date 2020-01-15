@@ -5,6 +5,7 @@
 #include "geometry/identity.hpp"
 #include "geometry/named_quantities.hpp"
 #include "geometry/orthogonal_map.hpp"
+#include "geometry/permutation.hpp"
 #include "geometry/rotation.hpp"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
@@ -39,6 +40,7 @@ using base::not_null;
 using geometry::AngularVelocity;
 using geometry::Identity;
 using geometry::OrthogonalMap;
+using geometry::Permutation;
 using geometry::RigidTransformation;
 using geometry::Rotation;
 using geometry::Velocity;
@@ -289,8 +291,8 @@ TEST_F(InterfaceFlightPlanTest, FlightPlan) {
           Barycentric::origin,
           Navigation::origin,
           OrthogonalMap<Barycentric, Navigation>::Identity()),
-      AngularVelocity<Barycentric>(),
-      Velocity<Barycentric>());
+      Barycentric::nonrotating,
+      Barycentric::unmoving);
   MockRenderer renderer;
   auto const identity = Rotation<Barycentric, AliceSun>::Identity();
   EXPECT_CALL(*plugin_, renderer()).WillRepeatedly(ReturnRef(renderer));
@@ -317,7 +319,10 @@ TEST_F(InterfaceFlightPlanTest, FlightPlan) {
       .WillOnce(ReturnRef(navigation_manœuvre));
 
   EXPECT_CALL(renderer, BarycentricToWorldSun(_))
-      .WillOnce(Return(OrthogonalMap<Barycentric, WorldSun>::Identity()));
+      .WillOnce(Return(
+          Permutation<Barycentric, WorldSun>(
+              Permutation<Barycentric, WorldSun>::CoordinatePermutation::YXZ)
+              .Forget<OrthogonalMap>()));
   EXPECT_CALL(navigation_manœuvre, FrenetFrame())
       .WillOnce(
           Return(OrthogonalMap<Frenet<Navigation>, Barycentric>::Identity()));
@@ -340,28 +345,28 @@ TEST_F(InterfaceFlightPlanTest, FlightPlan) {
 
   auto rendered_trajectory = make_not_null_unique<DiscreteTrajectory<World>>();
   rendered_trajectory->Append(
-      t0_, DegreesOfFreedom<World>(World::origin, Velocity<World>()));
+      t0_, DegreesOfFreedom<World>(World::origin, World::unmoving));
   rendered_trajectory->Append(
       t0_ + 1 * Second,
       DegreesOfFreedom<World>(
           World::origin +
               Displacement<World>({0 * Metre, 1 * Metre, 2 * Metre}),
-          Velocity<World>()));
+          World::unmoving));
   rendered_trajectory->Append(
       t0_ + 2 * Second,
       DegreesOfFreedom<World>(
           World::origin +
               Displacement<World>({0 * Metre, 2 * Metre, 4 * Metre}),
-          Velocity<World>()));
+          World::unmoving));
   auto segment = make_not_null_unique<DiscreteTrajectory<Barycentric>>();
   DegreesOfFreedom<Barycentric> immobile_origin{Barycentric::origin,
-                                                Velocity<Barycentric>{}};
+                                                Barycentric::unmoving};
   segment->Append(t0_, immobile_origin);
   segment->Append(t0_ + 1 * Second, immobile_origin);
   segment->Append(t0_ + 2 * Second, immobile_origin);
   EXPECT_CALL(flight_plan, GetSegment(3, _, _))
-      .WillOnce(DoAll(SetArgReferee<1>(segment->Begin()),
-                      SetArgReferee<2>(segment->End())));
+      .WillOnce(DoAll(SetArgReferee<1>(segment->begin()),
+                      SetArgReferee<2>(segment->end())));
   EXPECT_CALL(renderer,
               FillRenderedBarycentricTrajectoryInWorld(_, _, _, _, _, _))
       .WillOnce(FillUniquePtr<5>(rendered_trajectory.release()));

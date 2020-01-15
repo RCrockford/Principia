@@ -6,6 +6,7 @@
 #include "geometry/identity.hpp"
 #include "geometry/orthogonal_map.hpp"
 #include "geometry/r3_element.hpp"
+#include "geometry/symmetric_bilinear_form.hpp"
 #include "glog/logging.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
@@ -21,6 +22,8 @@ namespace internal_rotation {
 
 using quantities::ArcCos;
 using quantities::ArcSin;
+using quantities::Length;
+using quantities::Pow;
 using quantities::si::Degree;
 using quantities::si::Metre;
 using quantities::si::Radian;
@@ -34,21 +37,29 @@ using ::testing::Lt;
 
 class RotationTest : public testing::Test {
  protected:
-  using World =
-      Frame<serialization::Frame::TestTag, serialization::Frame::TEST, true>;
-  using World1 =
-      Frame<serialization::Frame::TestTag, serialization::Frame::TEST1, true>;
+  using World = Frame<serialization::Frame::TestTag,
+                      Inertial,
+                      Handedness::Right,
+                      serialization::Frame::TEST>;
+  using World1 = Frame<serialization::Frame::TestTag,
+                      Inertial,
+                      Handedness::Right,
+                      serialization::Frame::TEST1>;
   using Orth = OrthogonalMap<World, World>;
   using Rot = Rotation<World, World>;
 
   RotationTest()
-      : vector_(Vector<quantities::Length, World>(
-            R3Element<quantities::Length>(
+      : vector_(Vector<Length, World>(
+            R3Element<Length>(
                 1.0 * Metre, 2.0 * Metre, 3.0 * Metre))),
-        bivector_(Bivector<quantities::Length, World>(
-            R3Element<quantities::Length>(
+        bivector_(Bivector<Length, World>(
+            R3Element<Length>(
                 1.0 * Metre, 2.0 * Metre, 3.0 * Metre))),
-        trivector_(Trivector<quantities::Length, World>(4.0 * Metre)),
+        trivector_(Trivector<Length, World>(4.0 * Metre)),
+        form_(SymmetricBilinearForm<Length, World>(
+            R3x3Matrix<Length>({1.0 * Metre, 2.0 * Metre, 3.0 * Metre},
+                               {2.0 * Metre, -5.0 * Metre, 6.0 * Metre},
+                               {3.0 * Metre, 6.0 * Metre, 4.0 * Metre}))),
         e1_(Vector<double, World>(R3Element<double>({1, 0, 0}))),
         e2_(Vector<double, World>(R3Element<double>({0, 1, 0}))),
         e3_(Vector<double, World>(R3Element<double>({0, 0, 1}))),
@@ -59,9 +70,10 @@ class RotationTest : public testing::Test {
                                                 {-0.5 * sqrt(3), 0.5, 0},
                                                 {0, 0, 1}})))) {}
 
-  Vector<quantities::Length, World> vector_;
-  Bivector<quantities::Length, World> bivector_;
-  Trivector<quantities::Length, World> trivector_;
+  Vector<Length, World> const vector_;
+  Bivector<Length, World> const bivector_;
+  Trivector<Length, World> const trivector_;
+  SymmetricBilinearForm<Length, World> const form_;
   Vector<double, World> e1_;
   Vector<double, World> e2_;
   Vector<double, World> e3_;
@@ -80,90 +92,101 @@ TEST_F(RotationTest, Identity) {
 
 TEST_F(RotationTest, AppliedToVector) {
   EXPECT_THAT(rotation_a_(vector_),
-              AlmostEquals(Vector<quantities::Length, World>(
-                  R3Element<quantities::Length>(3.0 * Metre,
-                                                1.0 * Metre,
-                                                2.0 * Metre)), 4));
+              AlmostEquals(Vector<Length, World>(
+                  R3Element<Length>(3.0 * Metre,
+                                    1.0 * Metre,
+                                    2.0 * Metre)), 4));
   EXPECT_THAT(rotation_b_(vector_),
-              AlmostEquals(Vector<quantities::Length, World>(
-                  R3Element<quantities::Length>(1.0 * Metre,
-                                                -3.0 * Metre,
-                                                2.0 * Metre)), 1, 2));
+              AlmostEquals(Vector<Length, World>(
+                  R3Element<Length>(1.0 * Metre,
+                                    -3.0 * Metre,
+                                    2.0 * Metre)), 1, 2));
   EXPECT_THAT(rotation_c_(vector_),
-              AlmostEquals(Vector<quantities::Length, World>(
-                  R3Element<quantities::Length>((0.5 + sqrt(3.0)) * Metre,
-                                                (1.0 - 0.5 * sqrt(3.0)) * Metre,
-                                                3.0 * Metre)), 0));
+              AlmostEquals(Vector<Length, World>(
+                  R3Element<Length>((0.5 + sqrt(3.0)) * Metre,
+                                    (1.0 - 0.5 * sqrt(3.0)) * Metre,
+                                    3.0 * Metre)), 0));
 }
 
 TEST_F(RotationTest, AppliedToBivector) {
   EXPECT_THAT(rotation_a_(bivector_),
-              AlmostEquals(Bivector<quantities::Length, World>(
-                  R3Element<quantities::Length>(3.0 * Metre,
-                                                1.0 * Metre,
-                                                2.0 * Metre)), 4));
+              AlmostEquals(Bivector<Length, World>(
+                  R3Element<Length>(3.0 * Metre,
+                                    1.0 * Metre,
+                                    2.0 * Metre)), 4));
   EXPECT_THAT(rotation_b_(bivector_),
-              AlmostEquals(Bivector<quantities::Length, World>(
-                  R3Element<quantities::Length>(1.0 * Metre,
-                                                -3.0 * Metre,
-                                                2.0 * Metre)), 1, 2));
+              AlmostEquals(Bivector<Length, World>(
+                  R3Element<Length>(1.0 * Metre,
+                                    -3.0 * Metre,
+                                    2.0 * Metre)), 1, 2));
   EXPECT_THAT(rotation_c_(bivector_),
-              AlmostEquals(Bivector<quantities::Length, World>(
-                  R3Element<quantities::Length>((0.5 + sqrt(3.0)) * Metre,
-                                                (1.0 - 0.5 * sqrt(3.0)) * Metre,
-                                                3.0 * Metre)), 0));
+              AlmostEquals(Bivector<Length, World>(
+                  R3Element<Length>((0.5 + sqrt(3.0)) * Metre,
+                                    (1.0 - 0.5 * sqrt(3.0)) * Metre,
+                                    3.0 * Metre)), 0));
 }
 
 TEST_F(RotationTest, AppliedToTrivector) {
   EXPECT_THAT(rotation_a_(trivector_),
-              AlmostEquals(Trivector<quantities::Length, World>(
+              AlmostEquals(Trivector<Length, World>(
                   4.0 * Metre), 0));
   EXPECT_THAT(rotation_b_(trivector_),
-              AlmostEquals(Trivector<quantities::Length, World>(
+              AlmostEquals(Trivector<Length, World>(
                   4.0 * Metre), 0));
   EXPECT_THAT(rotation_c_(trivector_),
-              AlmostEquals(Trivector<quantities::Length, World>(
+              AlmostEquals(Trivector<Length, World>(
                   4.0 * Metre), 0));
 }
 
+TEST_F(RotationTest, AppliedToSymmetricBilinearForm) {
+  EXPECT_THAT(form_(vector_, vector_),
+              AlmostEquals(115.0 * Pow<3>(Metre), 0));
+  EXPECT_THAT(rotation_a_(form_)(rotation_a_(vector_), rotation_a_(vector_)),
+              AlmostEquals(115.0 * Pow<3>(Metre), 0, 1));
+  EXPECT_THAT(rotation_b_(form_)(rotation_b_(vector_), rotation_b_(vector_)),
+              AlmostEquals(115.0 * Pow<3>(Metre), 5));
+  EXPECT_THAT(rotation_c_(form_)(rotation_c_(vector_), rotation_c_(vector_)),
+              AlmostEquals(115.0 * Pow<3>(Metre), 0));
+}
+
 TEST_F(RotationTest, Determinant) {
-  EXPECT_TRUE(rotation_a_.Determinant().Positive());
-  EXPECT_TRUE(rotation_b_.Determinant().Positive());
-  EXPECT_TRUE(rotation_c_.Determinant().Positive());
+  EXPECT_TRUE(rotation_a_.Determinant().is_positive());
+  EXPECT_TRUE(rotation_b_.Determinant().is_positive());
+  EXPECT_TRUE(rotation_c_.Determinant().is_positive());
 }
 
 TEST_F(RotationTest, Inverse) {
   EXPECT_THAT(rotation_a_.Inverse()(vector_),
-              AlmostEquals(Vector<quantities::Length, World>(
-                  R3Element<quantities::Length>(2.0 * Metre,
-                                                3.0 * Metre,
-                                                1.0 * Metre)), 2));
+              AlmostEquals(Vector<Length, World>(
+                  R3Element<Length>(2.0 * Metre,
+                                    3.0 * Metre,
+                                    1.0 * Metre)), 2));
   EXPECT_THAT(rotation_b_.Inverse()(vector_),
-              AlmostEquals(Vector<quantities::Length, World>(
-                  R3Element<quantities::Length>(1.0 * Metre,
-                                                3.0 * Metre,
-                                                -2.0 * Metre)), 1, 2));
+              AlmostEquals(Vector<Length, World>(
+                  R3Element<Length>(1.0 * Metre,
+                                    3.0 * Metre,
+                                    -2.0 * Metre)), 1, 2));
   EXPECT_THAT(rotation_c_.Inverse()(vector_),
-              AlmostEquals(Vector<quantities::Length, World>(
-                  R3Element<quantities::Length>((0.5 - sqrt(3.0)) * Metre,
-                                                (1.0 + 0.5 * sqrt(3.0)) * Metre,
-                                                3.0 * Metre)), 0));
+              AlmostEquals(Vector<Length, World>(
+                  R3Element<Length>((0.5 - sqrt(3.0)) * Metre,
+                                    (1.0 + 0.5 * sqrt(3.0)) * Metre,
+                                    3.0 * Metre)), 0));
 }
 
 TEST_F(RotationTest, Composition) {
   Rot const rotation_ab = rotation_a_ * rotation_b_;
   EXPECT_THAT(rotation_ab(vector_),
-              AlmostEquals(Vector<quantities::Length, World>(
-                  R3Element<quantities::Length>(2.0 * Metre,
+              AlmostEquals(Vector<Length, World>(
+                  R3Element<Length>(2.0 * Metre,
                                                 1.0 * Metre,
                                                 -3.0 * Metre)), 4, 6));
 }
 
 TEST_F(RotationTest, Forget) {
-  Orth const orthogonal_a = rotation_a_.Forget();
+  Orth const orthogonal_a = rotation_a_.Forget<OrthogonalMap>();
   EXPECT_THAT(orthogonal_a(vector_),
-              AlmostEquals(Vector<quantities::Length, World>(
-                  R3Element<quantities::Length>(3.0 * Metre,
+              AlmostEquals(Vector<Length, World>(
+                  R3Element<Length>(3.0 * Metre,
                                                 1.0 * Metre,
                                                 2.0 * Metre)), 4));
 }
@@ -297,30 +320,38 @@ TEST_F(RotationTest, Enums) {
   // Checks that using the convention |axes| for Euler angles, conjugated by the
   // given |permutation|, and with appropriate sign changes, is equivalent to
   // the ZXZ convention.
-  auto const check_euler_angles = [&α, &β, &γ, &zxz_euler, this](
-      EulerAngles axes,
-      Permutation<World, World>::CoordinatePermutation permutation) {
-    Permutation<World, World> const σ(permutation);
-    Permutation<World1, World1> const τ =
-        (Permutation<World, World1>::Identity() * σ *
+  auto const check_euler_angles = [this, &α, &β, &γ, &zxz_euler](
+      EulerAngles axes, auto permutation) {
+    constexpr Handedness permuted_handedness =
+        std::is_same_v<decltype(permutation), EvenPermutation>
+            ? Handedness::Right
+            : Handedness::Left;
+    using Permuted =
+        Frame<enum class PermutedTag, Inertial, permuted_handedness>;
+    using PermutedRotated =
+        Frame<enum class PermutedRotatedTag, Inertial, permuted_handedness>;
+    Permutation<World, Permuted> const σ(permutation);
+    Permutation<PermutedRotated, World1> const τ =
+        (Permutation<Permuted, PermutedRotated>::Identity() * σ *
          Permutation<World1, World>::Identity()).Inverse();
-    Rotation<World, World1> const euler(σ.Determinant() * α,
-                                        σ.Determinant() * β,
-                                        σ.Determinant() * γ,
-                                        axes,
-                                        DefinesFrame<World1>{});
+    Rotation<Permuted, PermutedRotated> const euler(
+        σ.Determinant() * α,
+        σ.Determinant() * β,
+        σ.Determinant() * γ,
+        axes,
+        DefinesFrame<PermutedRotated>{});
     EXPECT_THAT(τ(euler(σ(e1_))), Eq(zxz_euler(e1_)));
     EXPECT_THAT(τ(euler(σ(e2_))), Eq(zxz_euler(e2_)));
     EXPECT_THAT(τ(euler(σ(e3_))), Eq(zxz_euler(e3_)));
   };
 
-  check_euler_angles(EulerAngles::ZXZ, Permutation<World, World>::XYZ);
-  check_euler_angles(EulerAngles::XYX, Permutation<World, World>::ZXY);
-  check_euler_angles(EulerAngles::YZY, Permutation<World, World>::YZX);
+  check_euler_angles(EulerAngles::ZXZ, EvenPermutation::XYZ);
+  check_euler_angles(EulerAngles::XYX, EvenPermutation::ZXY);
+  check_euler_angles(EulerAngles::YZY, EvenPermutation::YZX);
 
-  check_euler_angles(EulerAngles::ZYZ, Permutation<World, World>::YXZ);
-  check_euler_angles(EulerAngles::XZX, Permutation<World, World>::ZYX);
-  check_euler_angles(EulerAngles::YXY, Permutation<World, World>::XZY);
+  check_euler_angles(EulerAngles::ZYZ, OddPermutation::YXZ);
+  check_euler_angles(EulerAngles::XZX, OddPermutation::ZYX);
+  check_euler_angles(EulerAngles::YXY, OddPermutation::XZY);
 
   Rotation<World, World1> const xyz_cardano(α, β, γ,
                                             CardanoAngles::XYZ,
@@ -329,30 +360,38 @@ TEST_F(RotationTest, Enums) {
   // Checks that using the convention |axes| for Cardano angles, conjugated by
   // the given |permutation|, and with appropriate sign changes, is equivalent
   // to the XYZ convention.
-  auto const check_cardano_angles = [&α, &β, &γ, &xyz_cardano, this](
-      CardanoAngles axes,
-      Permutation<World, World>::CoordinatePermutation permutation) {
-    Permutation<World, World> const σ(permutation);
-    Permutation<World1, World1> const τ =
-        (Permutation<World, World1>::Identity() * σ *
+  auto const check_cardano_angles = [this, &α, &β, &γ, &xyz_cardano](
+                                        CardanoAngles axes, auto permutation) {
+    constexpr Handedness permuted_handedness =
+        std::is_same_v<decltype(permutation), EvenPermutation>
+            ? Handedness::Right
+            : Handedness::Left;
+    using Permuted =
+        Frame<enum class PermutedTag, Inertial, permuted_handedness>;
+    using PermutedRotated =
+        Frame<enum class PermutedRotatedTag, Inertial, permuted_handedness>;
+    Permutation<World, Permuted> const σ(permutation);
+    Permutation<PermutedRotated, World1> const τ =
+        (Permutation<Permuted, PermutedRotated>::Identity() * σ *
          Permutation<World1, World>::Identity()).Inverse();
-    Rotation<World, World1> const cardano(σ.Determinant() * α,
-                                          σ.Determinant() * β,
-                                          σ.Determinant() * γ,
-                                          axes,
-                                          DefinesFrame<World1>{});
+    Rotation<Permuted, PermutedRotated> const cardano(
+        σ.Determinant() * α,
+        σ.Determinant() * β,
+        σ.Determinant() * γ,
+        axes,
+        DefinesFrame<PermutedRotated>{});
     EXPECT_THAT(τ(cardano(σ(e1_))), Eq(xyz_cardano(e1_)));
     EXPECT_THAT(τ(cardano(σ(e2_))), Eq(xyz_cardano(e2_)));
     EXPECT_THAT(τ(cardano(σ(e3_))), Eq(xyz_cardano(e3_)));
   };
 
-  check_cardano_angles(CardanoAngles::XYZ, Permutation<World, World>::XYZ);
-  check_cardano_angles(CardanoAngles::YZX, Permutation<World, World>::ZXY);
-  check_cardano_angles(CardanoAngles::ZXY, Permutation<World, World>::YZX);
+  check_cardano_angles(CardanoAngles::XYZ, EvenPermutation::XYZ);
+  check_cardano_angles(CardanoAngles::YZX, EvenPermutation::ZXY);
+  check_cardano_angles(CardanoAngles::ZXY, EvenPermutation::YZX);
 
-  check_cardano_angles(CardanoAngles::XZY, Permutation<World, World>::XZY);
-  check_cardano_angles(CardanoAngles::ZYX, Permutation<World, World>::ZYX);
-  check_cardano_angles(CardanoAngles::YXZ, Permutation<World, World>::YXZ);
+  check_cardano_angles(CardanoAngles::XZY, OddPermutation::XZY);
+  check_cardano_angles(CardanoAngles::ZYX, OddPermutation::ZYX);
+  check_cardano_angles(CardanoAngles::YXZ, OddPermutation::YXZ);
 }
 
 TEST_F(RotationTest, EulerAngles) {
@@ -362,17 +401,17 @@ TEST_F(RotationTest, EulerAngles) {
   Angle const ω = 100 * Degree;
 
   // The frame in which the above elements are given.
-  struct Reference;
+  using Reference = Frame<enum class ReferenceTag>;
   // |Nodes| shares its z axis with |Reference|, and has the ascending node of
   // the orbit as its positive x direction.
-  struct Nodes;
+  using Nodes = Frame<enum class NodesTag>;
   // |Plane| also has the ascending node of the orbit as its positive x
   // direction, and has the orbital plane as its xy plane (with z being the
   // positive orbit normal).
-  struct Plane;
+  using Plane = Frame<enum class PlaneTag>;
   // |Orbit| has its x axis towards the periapsis, and its z axis towards the
   // positive orbit normal.
-  struct Orbit;
+  using Orbit = Frame<enum class OrbitTag>;
 
   Bivector<double, Reference> const celestial_pole({0, 0, 1});
   Bivector<double, Nodes> const ascending_node({1, 0, 0});
@@ -397,13 +436,13 @@ TEST_F(RotationTest, EulerAngles) {
 }
 
 TEST_F(RotationTest, CardanoAngles) {
-  struct Ground;
+  using Ground = Frame<enum class GroundTag>;
   Vector<double, Ground> north({1, 0, 0});
   Vector<double, Ground> east({0, 1, 0});
   Vector<double, Ground> down({0, 0, 1});
   auto const up = -down;
 
-  struct Aircraft;
+  using Aircraft = Frame<enum class AircraftTag>;
   Vector<double, Aircraft> forward({1, 0, 0});
   Vector<double, Aircraft> right({0, 1, 0});
   Vector<double, Aircraft> bottom({0, 0, 1});

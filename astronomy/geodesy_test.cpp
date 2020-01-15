@@ -9,6 +9,7 @@
 #include "physics/body_surface_dynamic_frame.hpp"
 #include "physics/solar_system.hpp"
 #include "quantities/si.hpp"
+#include "testing_utilities/approximate_quantity.hpp"
 #include "testing_utilities/is_near.hpp"
 #include "testing_utilities/numerics.hpp"
 
@@ -51,6 +52,7 @@ using quantities::si::Minute;
 using quantities::si::Second;
 using testing_utilities::AbsoluteError;
 using testing_utilities::IsNear;
+using testing_utilities::operator""_⑴;
 using ::testing::AnyOf;
 using ::testing::Eq;
 
@@ -87,7 +89,7 @@ class GeodesyTest : public ::testing::Test {
 
 #if !defined(_DEBUG)
 
-TEST_F(GeodesyTest, LAGEOS2) {
+TEST_F(GeodesyTest, DISABLED_LAGEOS2) {
   MasslessBody lageos2;
 
   StandardProduct3 initial_ilrsa(SOLUTION_DIR / "astronomy" /
@@ -106,21 +108,21 @@ TEST_F(GeodesyTest, LAGEOS2) {
   StandardProduct3::SatelliteIdentifier const lageos2_id{
       StandardProduct3::SatelliteGroup::General, 52};
 
-  CHECK_EQ(initial_ilrsa.orbit(lageos2_id).front()->Begin().time(),
-           initial_ilrsb.orbit(lageos2_id).front()->Begin().time());
+  CHECK_EQ(initial_ilrsa.orbit(lageos2_id).front()->front().time,
+           initial_ilrsb.orbit(lageos2_id).front()->front().time);
 
   Instant const initial_time =
-      initial_ilrsa.orbit(lageos2_id).front()->Begin().time();
+      initial_ilrsa.orbit(lageos2_id).front()->front().time;
   DegreesOfFreedom<ITRS> const initial_dof_ilrsa =
-      initial_ilrsa.orbit(lageos2_id).front()->Begin().degrees_of_freedom();
+      initial_ilrsa.orbit(lageos2_id).front()->front().degrees_of_freedom;
 
   DegreesOfFreedom<ITRS> const initial_dof_ilrsb =
-      initial_ilrsb.orbit(lageos2_id).front()->Begin().degrees_of_freedom();
+      initial_ilrsb.orbit(lageos2_id).front()->front().degrees_of_freedom;
 
   Instant const final_time =
-      final_ilrsa.orbit(lageos2_id).front()->Begin().time();
+      final_ilrsa.orbit(lageos2_id).front()->front().time;
   DegreesOfFreedom<ITRS> const expected_final_dof =
-      final_ilrsa.orbit(lageos2_id).front()->Begin().degrees_of_freedom();
+      final_ilrsa.orbit(lageos2_id).front()->front().degrees_of_freedom;
 
   ephemeris_->Prolong(final_time);
 
@@ -144,8 +146,7 @@ TEST_F(GeodesyTest, LAGEOS2) {
                 std::numeric_limits<std::int64_t>::max(),
                 /*length_integration_tolerance=*/1 * Milli(Metre),
                 /*speed_integration_tolerance=*/1 * Milli(Metre) / Second),
-            /*max_ephemeris_steps=*/std::numeric_limits<std::int64_t>::max(),
-            /*last_point_only=*/true);
+            /*max_ephemeris_steps=*/std::numeric_limits<std::int64_t>::max());
   };
   Bundle bundle;
   bundle.Add([&flow_lageos2, &primary_lageos2_trajectory]() {
@@ -155,27 +156,27 @@ TEST_F(GeodesyTest, LAGEOS2) {
     return flow_lageos2(secondary_lageos2_trajectory);
   });
   bundle.Join();
-  EXPECT_THAT(primary_lageos2_trajectory.last().time(), Eq(final_time));
-  EXPECT_THAT(secondary_lageos2_trajectory.last().time(), Eq(final_time));
+  EXPECT_THAT(primary_lageos2_trajectory.back().time, Eq(final_time));
+  EXPECT_THAT(secondary_lageos2_trajectory.back().time, Eq(final_time));
 
   auto const primary_actual_final_dof = itrs_.ToThisFrameAtTime(final_time)(
-      primary_lageos2_trajectory.last().degrees_of_freedom());
+      primary_lageos2_trajectory.back().degrees_of_freedom);
   auto const secondary_actual_final_dof = itrs_.ToThisFrameAtTime(final_time)(
-      secondary_lageos2_trajectory.last().degrees_of_freedom());
+      secondary_lageos2_trajectory.back().degrees_of_freedom);
 
   // Absolute error in position.
   EXPECT_THAT(AbsoluteError(primary_actual_final_dof.position(),
                             expected_final_dof.position()),
-              IsNear(191 * Kilo(Metre)));
+              IsNear(191_⑴ * Kilo(Metre)));
   // Angular error at the geocentre.
   EXPECT_THAT(AngleBetween(primary_actual_final_dof.position() - ITRS::origin,
                            expected_final_dof.position() - ITRS::origin),
-              IsNear(53 * ArcMinute));
+              IsNear(53_⑴ * ArcMinute));
   // Radial error at the geocentre.
   EXPECT_THAT(
       AbsoluteError((primary_actual_final_dof.position() - ITRS::origin).Norm(),
                     (expected_final_dof.position() - ITRS::origin).Norm()),
-      IsNear(894 * Metre));
+      IsNear(0.89_⑴ * Kilo(Metre)));
 
   // Errors in orbital elements.
   KeplerianElements<ICRS> const expected_elements =
@@ -195,22 +196,22 @@ TEST_F(GeodesyTest, LAGEOS2) {
 
   EXPECT_THAT(AbsoluteError(*actual_elements.periapsis_distance,
                             *expected_elements.periapsis_distance),
-              IsNear(42 * Metre));
+              IsNear(42_⑴ * Metre));
   EXPECT_THAT(AbsoluteError(*actual_elements.apoapsis_distance,
                             *expected_elements.apoapsis_distance),
-              IsNear(9.5 * Metre));
+              IsNear(9.5_⑴ * Metre));
   EXPECT_THAT(AbsoluteError(actual_elements.longitude_of_ascending_node,
                             expected_elements.longitude_of_ascending_node),
-              IsNear(17 * ArcSecond));
+              IsNear(17_⑴ * ArcSecond));
   EXPECT_THAT(AbsoluteError(actual_elements.inclination,
                             expected_elements.inclination),
-              IsNear(1.1 * ArcSecond));
+              IsNear(1.1_⑴ * ArcSecond));
   EXPECT_THAT(AbsoluteError(*actual_elements.argument_of_periapsis,
                             *expected_elements.argument_of_periapsis),
-              IsNear(3 * ArcMinute + 37 * ArcSecond));
+              IsNear(217_⑴ * ArcSecond));
   EXPECT_THAT(AbsoluteError(*actual_elements.mean_anomaly,
                             *expected_elements.mean_anomaly),
-              IsNear(58 * ArcMinute));
+              IsNear(58_⑴ * ArcMinute));
 
 #if 0
   // Error arising from uncertainty in the initial state, estimated as the
@@ -218,25 +219,25 @@ TEST_F(GeodesyTest, LAGEOS2) {
   // Absolute error in position.
   EXPECT_THAT(AbsoluteError(secondary_actual_final_dof.position(),
                             primary_actual_final_dof.position()),
-              AnyOf(IsNear(237 * Metre),    // Linux.
-                    IsNear(28 * Metre),     // No FMA.
-                    IsNear(98 * Metre),     // FMA.
-                    IsNear(220 * Metre)));  // VS 2019.
+              AnyOf(IsNear(237_⑴ * Metre),    // Linux.
+                    IsNear(28_⑴ * Metre),     // No FMA.
+                    IsNear(98_⑴ * Metre),     // FMA.
+                    IsNear(220_⑴ * Metre)));  // VS 2019.
   // Angular error at the geocentre.
   EXPECT_THAT(AngleBetween(secondary_actual_final_dof.position() - ITRS::origin,
                            primary_actual_final_dof.position() - ITRS::origin),
-                AnyOf(IsNear(4.0 * ArcSecond),    // Linux.
-                      IsNear(0.47 * ArcSecond),   // No FMA.
-                      IsNear(1.6 * ArcSecond),    // FMA.
-                      IsNear(3.7 * ArcSecond)));  // VS 2019.
+                AnyOf(IsNear(4.0_⑴ * ArcSecond),    // Linux.
+                      IsNear(0.47_⑴ * ArcSecond),   // No FMA.
+                      IsNear(1.6_⑴ * ArcSecond),    // FMA.
+                      IsNear(3.7_⑴ * ArcSecond)));  // VS 2019.
   // Radial error at the geocentre.
   EXPECT_THAT(AbsoluteError(
                   (secondary_actual_final_dof.position() - ITRS::origin).Norm(),
                   (primary_actual_final_dof.position() - ITRS::origin).Norm()),
-              AnyOf(IsNear(99 * Centi(Metre)),    // Linux.
-                    IsNear(11 * Centi(Metre)),    // No FMA.
-                    IsNear(43 * Centi(Metre)),    // FMA.
-                    IsNear(93 * Centi(Metre))));  // VS 2019.
+              AnyOf(IsNear(99_⑴ * Centi(Metre)),    // Linux.
+                    IsNear(11_⑴ * Centi(Metre)),    // No FMA.
+                    IsNear(43_⑴ * Centi(Metre)),    // FMA.
+                    IsNear(93_⑴ * Centi(Metre))));  // VS 2019.
 #endif
 }
 

@@ -18,6 +18,7 @@ namespace geometry {
 namespace internal_r3x3_matrix {
 
 using base::not_null;
+using quantities::Cube;
 using quantities::is_quantity;
 using quantities::Product;
 using quantities::Quotient;
@@ -33,9 +34,15 @@ class R3x3Matrix final {
              R3Element<Scalar> const& row_z);
 
   Scalar Trace() const;
+  Cube<Scalar> Determinant() const;
   R3x3Matrix Transpose() const;
 
+  R3Element<Scalar> const& row_x() const;
+  R3Element<Scalar> const& row_y() const;
+  R3Element<Scalar> const& row_z() const;
+
   Scalar operator()(int r, int c) const;
+  Scalar& operator()(int r, int c);
 
   R3x3Matrix& operator+=(R3x3Matrix const& right);
   R3x3Matrix& operator-=(R3x3Matrix const& right);

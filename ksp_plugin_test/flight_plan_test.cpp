@@ -4,17 +4,20 @@
 #include <limits>
 #include <vector>
 
+#include "astronomy/epoch.hpp"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "integrators/embedded_explicit_generalized_runge_kutta_nyström_integrator.hpp"
 #include "integrators/embedded_explicit_runge_kutta_nyström_integrator.hpp"
 #include "integrators/methods.hpp"
 #include "integrators/symmetric_linear_multistep_integrator.hpp"
+#include "ksp_plugin/integrators.hpp"
 #include "physics/degrees_of_freedom.hpp"
 #include "physics/discrete_trajectory.hpp"
 #include "physics/massive_body.hpp"
 #include "serialization/ksp_plugin.pb.h"
 #include "testing_utilities/almost_equals.hpp"
+#include "testing_utilities/approximate_quantity.hpp"
 #include "testing_utilities/is_near.hpp"
 #include "testing_utilities/matchers.hpp"
 #include "testing_utilities/numerics.hpp"
@@ -23,7 +26,9 @@ namespace principia {
 namespace ksp_plugin {
 namespace internal_flight_plan {
 
+using astronomy::J2000;
 using base::Error;
+using base::make_not_null_shared;
 using base::make_not_null_unique;
 using geometry::Barycentre;
 using geometry::Displacement;
@@ -54,6 +59,7 @@ using testing_utilities::AbsoluteError;
 using testing_utilities::AlmostEquals;
 using testing_utilities::IsNear;
 using testing_utilities::StatusIs;
+using testing_utilities::operator""_⑴;
 using ::testing::AllOf;
 using ::testing::Eq;
 using ::testing::Gt;
@@ -70,7 +76,7 @@ class FlightPlanTest : public testing::Test {
     bodies.emplace_back(
         make_not_null_unique<MassiveBody>(1 * Pow<3>(Metre) / Pow<2>(Second)));
     std::vector<DegreesOfFreedom<Barycentric>> initial_state{
-        {Barycentric::origin, Velocity<Barycentric>()}};
+        {Barycentric::origin, Barycentric::unmoving}};
     ephemeris_ = std::make_unique<Ephemeris<Barycentric>>(
         std::move(bodies),
         initial_state,
@@ -99,8 +105,8 @@ class FlightPlanTest : public testing::Test {
                                          0 * Metre / Second})});
     flight_plan_ = std::make_unique<FlightPlan>(
         /*initial_mass=*/1 * Kilogram,
-        /*initial_time=*/root_.Begin().time(),
-        /*initial_degrees_of_freedom=*/root_.Begin().degrees_of_freedom(),
+        /*initial_time=*/root_.front().time,
+        /*initial_degrees_of_freedom=*/root_.front().degrees_of_freedom,
         /*desired_final_time=*/t0_ + 1.5 * Second,
         ephemeris_.get(),
         Ephemeris<Barycentric>::AdaptiveStepParameters(
@@ -182,7 +188,7 @@ TEST_F(FlightPlanTest, Singular) {
   Length const x0 = 1 * Metre;
   Instant const singularity = t0_ + π * Sqrt(Pow<3>(x0 / 2) / μ);
   flight_plan_.reset();
-  root_.ForgetAfter(root_.Begin().time());
+  root_.ForgetAfter(root_.front().time);
   // NOTE(egg): In order for to avoid singular Frenet frames NaNing everything,
   // we offset our test particle by 100 ε.  The resulting system is still
   // extremely stiff, indeed the integrator detects a singularity at the exact
@@ -194,11 +200,11 @@ TEST_F(FlightPlanTest, Singular) {
                         {x0,
                          100 * std::numeric_limits<double>::epsilon() * Metre,
                          0 * Metre}),
-                Velocity<Barycentric>()});
+                Barycentric::unmoving});
   flight_plan_ = std::make_unique<FlightPlan>(
       /*initial_mass=*/1 * Kilogram,
-      /*initial_time=*/root_.last().time(),
-      /*initial_degrees_of_freedom=*/root_.last().degrees_of_freedom(),
+      /*initial_time=*/root_.back().time,
+      /*initial_degrees_of_freedom=*/root_.back().degrees_of_freedom,
       /*final_time=*/singularity + 100 * Second,
       ephemeris_.get(),
       Ephemeris<Barycentric>::AdaptiveStepParameters(
@@ -220,7 +226,7 @@ TEST_F(FlightPlanTest, Singular) {
   flight_plan_->GetSegment(0, begin, end);
   DiscreteTrajectory<Barycentric>::Iterator back = end;
   --back;
-  EXPECT_THAT(AbsoluteError(singularity, back.time()), Lt(1e-4 * Second));
+  EXPECT_THAT(AbsoluteError(singularity, back->time), Lt(1e-4 * Second));
   // Attempting to put a burn past the singularity fails.
   EXPECT_THAT(
       flight_plan_->Append(
@@ -263,7 +269,7 @@ TEST_F(FlightPlanTest, Singular) {
   flight_plan_->GetSegment(1, begin, end);
   back = end;
   --back;
-  EXPECT_THAT(back.time(), Lt(singularity));
+  EXPECT_THAT(back->time, Lt(singularity));
   EXPECT_NE(begin, back);
   flight_plan_->GetSegment(2, begin, end);
   back = end;
@@ -289,12 +295,12 @@ TEST_F(FlightPlanTest, Singular) {
   flight_plan_->GetSegment(1, begin, end);
   back = end;
   --back;
-  EXPECT_THAT(back.time(), Eq(t0_ + 0.5 * Second + (1 - 1 / e) / 10 * Second));
+  EXPECT_THAT(back->time, Eq(t0_ + 0.5 * Second + (1 - 1 / e) / 10 * Second));
   EXPECT_NE(begin, back);
   flight_plan_->GetSegment(2, begin, end);
   back = end;
   --back;
-  EXPECT_THAT(back.time(), AllOf(Gt(singularity), Lt(t0_ + 2 * Second)));
+  EXPECT_THAT(back->time, AllOf(Gt(singularity), Lt(t0_ + 2 * Second)));
   EXPECT_NE(begin, back);
 }
 
@@ -329,8 +335,8 @@ TEST_F(FlightPlanTest, ForgetBefore) {
     DiscreteTrajectory<Barycentric>::Iterator end;
     flight_plan_->GetSegment(i, begin, end);
     --end;
-    begin_times.push_back(begin.time());
-    last_times.push_back(end.time());
+    begin_times.push_back(begin->time);
+    last_times.push_back(end->time);
   }
 
   // Do the forgetting.
@@ -435,7 +441,7 @@ TEST_F(FlightPlanTest, Segments) {
   for (int i = 0; i < flight_plan_->number_of_segments(); ++i) {
     flight_plan_->GetSegment(i, begin, end);
     for (auto it = begin; it != end; ++it) {
-      Instant const& t = it.time();
+      Instant const& t = it->time;
       EXPECT_LE(last_t, t);
       EXPECT_LE(t, t0_ + 42 * Second);
       times.push_back(t);
@@ -454,7 +460,7 @@ TEST_F(FlightPlanTest, SetAdaptiveStepParameter) {
   EXPECT_EQ(5, flight_plan_->number_of_segments());
   flight_plan_->GetSegment(4, begin, end);
   --end;
-  EXPECT_EQ(t0_ + 42 * Second, end.time());
+  EXPECT_EQ(t0_ + 42 * Second, end->time);
 
   auto const adaptive_step_parameters =
       flight_plan_->adaptive_step_parameters();
@@ -488,7 +494,7 @@ TEST_F(FlightPlanTest, SetAdaptiveStepParameter) {
   EXPECT_EQ(5, flight_plan_->number_of_segments());
   flight_plan_->GetSegment(4, begin, end);
   --end;
-  EXPECT_EQ(t0_ + 42 * Second, end.time());
+  EXPECT_EQ(t0_ + 42 * Second, end->time);
 
   // Increase |max_steps|.  It works.
   EXPECT_OK(flight_plan_->SetAdaptiveStepParameters(
@@ -510,7 +516,7 @@ TEST_F(FlightPlanTest, SetAdaptiveStepParameter) {
   EXPECT_EQ(5, flight_plan_->number_of_segments());
   flight_plan_->GetSegment(4, begin, end);
   --end;
-  EXPECT_EQ(t0_ + 42 * Second, end.time());
+  EXPECT_EQ(t0_ + 42 * Second, end->time);
 }
 
 TEST_F(FlightPlanTest, GuidedBurn) {
@@ -524,15 +530,83 @@ TEST_F(FlightPlanTest, GuidedBurn) {
   flight_plan_->GetAllSegments(begin, end);
   last = --end;
   Speed const unguided_final_speed =
-      last.degrees_of_freedom().velocity().Norm();
+      last->degrees_of_freedom.velocity().Norm();
   auto guided_burn = MakeFirstBurn();
   guided_burn.thrust /= 10;
   guided_burn.is_inertially_fixed = false;
   EXPECT_OK(flight_plan_->Replace(std::move(guided_burn), /*index=*/0));
   flight_plan_->GetAllSegments(begin, end);
   last = --end;
-  Speed const guided_final_speed = last.degrees_of_freedom().velocity().Norm();
-  EXPECT_THAT(guided_final_speed, IsNear(1.40 * unguided_final_speed));
+  Speed const guided_final_speed = last->degrees_of_freedom.velocity().Norm();
+  EXPECT_THAT(guided_final_speed, IsNear(1.40_⑴ * unguided_final_speed));
+}
+
+TEST_F(FlightPlanTest, Issue2331) {
+  FlightPlan flight_plan(
+      11024.436950683594 * Kilogram,
+      J2000 + 1130.8399999993526 * Second,
+      DegreesOfFreedom<Barycentric>(
+          Barycentric::origin +
+              Displacement<Barycentric>({-13607881359.190962 * Metre,
+                                         -1183506.3832585660 * Metre,
+                                         -109366.09411247486 * Metre}),
+          Velocity<Barycentric>({-639.01032564318075 * Metre / Second,
+                                 -8663.2671328991710 * Metre / Second,
+                                 -129.00845706608661 * Metre / Second})),
+      J2000 + 4280.4599499295282 * Second,
+      ephemeris_.get(),
+      DefaultPredictionParameters(),
+      DefaultBurnParameters());
+
+  Force const thrust = 250000.10393791363 * Newton;
+  SpecificImpulse const specific_impulse = 3432.3274999999999 * Metre / Second;
+  auto const frame =
+      make_not_null_shared<TestNavigationFrame>(*navigation_frame_);
+  bool const inertially_fixed = true;
+
+  NavigationManœuvre::Intensity intensity0;
+  intensity0.Δv =
+      Velocity<Frenet<NavigationFrame>>({2035.0000000000005 * Metre / Second,
+                                         0 * Metre / Second,
+                                         0 * Metre / Second});
+  NavigationManœuvre::Timing timing0;
+  timing0.initial_time = J2000 + 3894.6399999993528 * Second;
+  NavigationManœuvre::Burn const burn0{intensity0,
+                                       timing0,
+                                       thrust,
+                                       specific_impulse,
+                                       frame,
+                                       inertially_fixed};
+  flight_plan.Append(burn0);
+
+  NavigationManœuvre::Intensity intensity1;
+  intensity1.Δv =
+      Velocity<Frenet<NavigationFrame>>({819.29427681721018 * Metre / Second,
+                                         0 * Metre / Second,
+                                         0 * Metre / Second});
+  NavigationManœuvre::Timing timing1;
+  timing1.initial_time = J2000 + 4258.1383894665723 * Second;
+  NavigationManœuvre::Burn const burn1{intensity1,
+                                       timing1,
+                                       thrust,
+                                       specific_impulse,
+                                       frame,
+                                       inertially_fixed};
+  flight_plan.Append(burn1);
+
+  NavigationManœuvre::Intensity intensity2;
+  intensity2.Δv = Velocity<Frenet<NavigationFrame>>();
+  NavigationManœuvre::Timing timing2;
+  timing2.initial_time = J2000 + 3894.6399999993528 * Second;
+  NavigationManœuvre::Burn const burn2{intensity2,
+                                       timing2,
+                                       thrust,
+                                       specific_impulse,
+                                       frame,
+                                       inertially_fixed};
+
+  // This call used to check-fail.
+  flight_plan.Replace(burn2, 0);
 }
 
 TEST_F(FlightPlanTest, Serialization) {

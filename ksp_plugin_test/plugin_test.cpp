@@ -59,6 +59,7 @@ using base::Status;
 using geometry::AngularVelocity;
 using geometry::Bivector;
 using geometry::Identity;
+using geometry::OddPermutation;
 using geometry::Permutation;
 using geometry::RigidTransformation;
 using geometry::Trivector;
@@ -291,8 +292,8 @@ RigidMotion<ICRS, Barycentric> const PluginTest::id_icrs_barycentric_(
         ICRS::origin,
         Barycentric::origin,
         OrthogonalMap<ICRS, Barycentric>::Identity()),
-    AngularVelocity<ICRS>(),
-    Velocity<ICRS>());
+    ICRS::nonrotating,
+    ICRS::unmoving);
 
 using PluginDeathTest = PluginTest;
 
@@ -477,8 +478,9 @@ TEST_F(PluginTest, Initialization) {
   for (int index = SolarSystemFactory::Sun + 1;
        index <= SolarSystemFactory::LastMajorBody;
        ++index) {
-    auto const to_icrs = id_icrs_barycentric_.orthogonal_map().Inverse() *
-                         plugin_->InversePlanetariumRotation().Forget();
+    auto const to_icrs =
+        id_icrs_barycentric_.orthogonal_map().Inverse() *
+        plugin_->InversePlanetariumRotation().Forget<OrthogonalMap>();
     Index const parent_index = SolarSystemFactory::parent(index);
     RelativeDegreesOfFreedom<ICRS> const from_parent =
         solar_system_->degrees_of_freedom(SolarSystemFactory::name(index)) -
@@ -726,7 +728,7 @@ TEST_F(PluginDeathTest, InsertUnloadedPartError) {
         guid,
         RelativeDegreesOfFreedom<AliceSun>(satellite_initial_displacement_,
                                            satellite_initial_velocity_));
-  }, "emplaced");
+  }, "inserted");
 }
 
 TEST_F(PluginDeathTest, AdvanceTimeError) {
@@ -740,7 +742,7 @@ TEST_F(PluginTest, ForgetAllHistoriesBeforeWithFlightPlan) {
   GUID const guid = "Test Satellite";
   PartId const part_id = 666;
   auto const dof = DegreesOfFreedom<Barycentric>(Barycentric::origin,
-                                                 Velocity<Barycentric>());
+                                                 Barycentric::unmoving);
   Instant const initial_time = ParseTT(initial_time_);
   Instant const time = initial_time + 1 * Second;
   Instant t_max = time;
@@ -761,11 +763,11 @@ TEST_F(PluginTest, ForgetAllHistoriesBeforeWithFlightPlan) {
       .WillRepeatedly(SaveArg<0>(&t_max));
   EXPECT_CALL(
       plugin_->mock_ephemeris(),
-      FlowWithAdaptiveStep(_, _, Ne(astronomy::InfiniteFuture), _, _, _))
+      FlowWithAdaptiveStep(_, _, Ne(astronomy::InfiniteFuture), _, _))
       .WillRepeatedly(
           DoAll(AppendToDiscreteTrajectory(dof), Return(Status::OK)));
   EXPECT_CALL(plugin_->mock_ephemeris(),
-              FlowWithAdaptiveStep(_, _, astronomy::InfiniteFuture, _, _, _))
+              FlowWithAdaptiveStep(_, _, astronomy::InfiniteFuture, _, _))
       .WillRepeatedly(Return(Status::OK));
   EXPECT_CALL(plugin_->mock_ephemeris(), FlowWithFixedStep(_, _))
       .WillRepeatedly(DoAll(AppendToDiscreteTrajectory2(&trajectories[0], dof),
@@ -781,8 +783,8 @@ TEST_F(PluginTest, ForgetAllHistoriesBeforeWithFlightPlan) {
       .WillRepeatedly(Return(
           RigidMotion<Barycentric, Navigation>(
               RigidTransformation<Barycentric, Navigation>::Identity(),
-              AngularVelocity<Barycentric>(),
-              Velocity<Barycentric>())));
+              Barycentric::nonrotating,
+              Barycentric::unmoving)));
   EXPECT_CALL(*mock_dynamic_frame, FrenetFrame(_, _))
       .WillRepeatedly(Return(
           MockDynamicFrame<Barycentric, Navigation>::Rot::Identity()));
@@ -846,12 +848,12 @@ TEST_F(PluginTest, ForgetAllHistoriesBeforeWithFlightPlan) {
   plugin_->CatchUpLaggingVessels(collided_vessels);
   plugin_->ForgetAllHistoriesBefore(HistoryTime(time, 3));
   EXPECT_LE(HistoryTime(time, 3), satellite->flight_plan().initial_time());
-  EXPECT_LE(HistoryTime(time, 3), satellite->psychohistory().Begin().time());
+  EXPECT_LE(HistoryTime(time, 3), satellite->psychohistory().front().time);
   EXPECT_EQ(1, satellite->flight_plan().number_of_manœuvres());
   EXPECT_EQ(1 * Newton, satellite->flight_plan().GetManœuvre(0).thrust());
   plugin_->ForgetAllHistoriesBefore(HistoryTime(time, 5));
   EXPECT_LE(HistoryTime(time, 5), satellite->flight_plan().initial_time());
-  EXPECT_LE(HistoryTime(time, 5), satellite->psychohistory().Begin().time());
+  EXPECT_LE(HistoryTime(time, 5), satellite->psychohistory().front().time);
   EXPECT_EQ(0, satellite->flight_plan().number_of_manœuvres());
 }
 
@@ -859,7 +861,7 @@ TEST_F(PluginTest, ForgetAllHistoriesBeforeAfterPredictionFork) {
   GUID const guid = "Test Satellite";
   PartId const part_id = 666;
   auto const dof = DegreesOfFreedom<Barycentric>(Barycentric::origin,
-                                                 Velocity<Barycentric>());
+                                                 Barycentric::unmoving);
 
   InsertAllSolarSystemBodies();
   plugin_->EndInitialization();
@@ -877,7 +879,7 @@ TEST_F(PluginTest, ForgetAllHistoriesBeforeAfterPredictionFork) {
   EXPECT_CALL(plugin_->mock_ephemeris(), trajectory(_))
       .WillOnce(Return(plugin_->trajectory(SolarSystemFactory::Sun)));
   EXPECT_CALL(plugin_->mock_ephemeris(), Prolong(_)).Times(AnyNumber());
-  EXPECT_CALL(plugin_->mock_ephemeris(), FlowWithAdaptiveStep(_, _, _, _, _, _))
+  EXPECT_CALL(plugin_->mock_ephemeris(), FlowWithAdaptiveStep(_, _, _, _, _))
       .WillRepeatedly(DoAll(AppendToDiscreteTrajectory(dof),
                             Return(Status(Error::DEADLINE_EXCEEDED, ""))));
   EXPECT_CALL(plugin_->mock_ephemeris(), FlowWithFixedStep(_, _))
@@ -937,7 +939,7 @@ TEST_F(PluginTest, ForgetAllHistoriesBeforeAfterPredictionFork) {
       plugin_->renderer().RenderBarycentricTrajectoryInWorld(
           plugin_->CurrentTime(),
           prediction.Fork(),
-          prediction.End(),
+          prediction.end(),
           World::origin,
           plugin_->PlanetariumRotation());
 }
@@ -1011,7 +1013,7 @@ TEST_F(PluginTest, VesselInsertionAtInitialization) {
   EXPECT_THAT(
       plugin_->VesselFromParent(SolarSystemFactory::Earth, guid),
       Componentwise(AlmostEquals(satellite_initial_displacement_, 13556),
-                    AlmostEquals(satellite_initial_velocity_, 6)));
+                    AlmostEquals(satellite_initial_velocity_, 36)));
 }
 
 TEST_F(PluginTest, UpdateCelestialHierarchy) {
@@ -1026,8 +1028,9 @@ TEST_F(PluginTest, UpdateCelestialHierarchy) {
   for (int index = SolarSystemFactory::Sun + 1;
        index <= SolarSystemFactory::LastMajorBody;
        ++index) {
-    auto const to_icrs = id_icrs_barycentric_.orthogonal_map().Inverse() *
-                         plugin_->InversePlanetariumRotation().Forget();
+    auto const to_icrs =
+        id_icrs_barycentric_.orthogonal_map().Inverse() *
+        plugin_->InversePlanetariumRotation().Forget<OrthogonalMap>();
     RelativeDegreesOfFreedom<ICRS> const initial_from_parent =
         solar_system_->degrees_of_freedom(SolarSystemFactory::name(index)) -
         solar_system_->degrees_of_freedom(
@@ -1160,7 +1163,7 @@ TEST_F(PluginTest, Frenet) {
           SolarSystemFactory::name(SolarSystemFactory::Earth)));
   plugin.EndInitialization();
   Permutation<AliceSun, World> const alice_sun_to_world =
-      Permutation<AliceSun, World>(Permutation<AliceSun, World>::XZY);
+      Permutation<AliceSun, World>(OddPermutation::XZY);
   GUID const satellite = "satellite";
   PartId const part_id = 42;
   bool inserted;
@@ -1186,12 +1189,12 @@ TEST_F(PluginTest, Frenet) {
   not_null<std::unique_ptr<NavigationFrame>> const geocentric =
       plugin.NewBodyCentredNonRotatingNavigationFrame(
           SolarSystemFactory::Earth);
-  EXPECT_THAT(plugin.VesselTangent(satellite), AlmostEquals(t, 5, 17));
-  EXPECT_THAT(plugin.VesselNormal(satellite), AlmostEquals(n, 3, 11));
+  EXPECT_THAT(plugin.VesselTangent(satellite), AlmostEquals(t, 5, 61));
+  EXPECT_THAT(plugin.VesselNormal(satellite), AlmostEquals(n, 3, 25));
   EXPECT_THAT(plugin.VesselBinormal(satellite), AlmostEquals(b, 0, 15));
   EXPECT_THAT(
       plugin.VesselVelocity(satellite),
-      AlmostEquals(alice_sun_to_world(satellite_initial_velocity_), 7, 19));
+      AlmostEquals(alice_sun_to_world(satellite_initial_velocity_), 7, 83));
 }
 
 }  // namespace internal_plugin

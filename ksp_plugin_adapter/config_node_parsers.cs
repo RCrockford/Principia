@@ -8,36 +8,31 @@ internal static class ConfigNodeParsers {
   public static BodyParameters NewCartesianBodyParameters(CelestialBody body,
                                                           ConfigNode node) {
     return new BodyParameters{
-        name = body.name,
+        name                    = body.name,
         gravitational_parameter =
             node.GetUniqueValue("gravitational_parameter"),
-        reference_instant       =
-            node.GetAtMostOneValue("reference_instant"),
-        mean_radius             =
-            node.GetAtMostOneValue("mean_radius"),
+        reference_instant       = node.GetAtMostOneValue("reference_instant"),
+        min_radius              =
+            (body.pqsController?.radiusMin ?? body.Radius) + " m",
+        mean_radius             = body.Radius + " m",
+        max_radius              =
+            (body.pqsController?.radiusMax ?? body.Radius) + " m",
         axis_right_ascension    =
             node.GetAtMostOneValue("axis_right_ascension"),
-        axis_declination        =
-            node.GetAtMostOneValue("axis_declination"),
-        reference_angle         =
-            node.GetAtMostOneValue("reference_angle"),
-        angular_frequency       =
-            node.GetAtMostOneValue("angular_frequency"),
-        reference_radius        =
-            node.GetAtMostOneValue("reference_radius"),
-        j2                      =
-            node.GetAtMostOneValue("j2"),
-        geopotential            =
-            node.GetBodyGeopotentialElements().ToArray()};
+        axis_declination        = node.GetAtMostOneValue("axis_declination"),
+        reference_angle         = node.GetAtMostOneValue("reference_angle"),
+        angular_frequency       = node.GetAtMostOneValue("angular_frequency"),
+        reference_radius        = node.GetAtMostOneValue("reference_radius"),
+        j2                      = node.GetAtMostOneValue("j2"),
+        geopotential            = node.GetBodyGeopotentialElements().ToArray()
+    };
   }
 
   public static ConfigurationAccuracyParameters
   NewConfigurationAccuracyParameters(ConfigNode node) {
     return new ConfigurationAccuracyParameters{
-        fitting_tolerance      =
-            node.GetUniqueValue("fitting_tolerance"),
-        geopotential_tolerance =
-            node.GetUniqueValue("geopotential_tolerance")};
+        fitting_tolerance      = node.GetUniqueValue("fitting_tolerance"),
+        geopotential_tolerance = node.GetUniqueValue("geopotential_tolerance")};
   }
 
   public static ConfigurationAdaptiveStepParameters
@@ -62,38 +57,38 @@ internal static class ConfigNodeParsers {
 
   public static BodyParameters NewKeplerianBodyParameters(CelestialBody body,
                                                           ConfigNode node) {
+    var j2 = node?.GetAtMostOneValue("j2");
+    var geopotential = node?.GetBodyGeopotentialElements()?.ToArray();
     return new BodyParameters{
-        name = body.name,
+        name                    = body.name,
         gravitational_parameter =
-            node?.GetAtMostOneValue("gravitational_parameter")
-                ?? (body.gravParameter + " m^3/s^2"),
+            node?.GetAtMostOneValue("gravitational_parameter") ??
+            (body.gravParameter + " m^3/s^2"),
         // The origin of rotation in KSP is the x of Barycentric, rather
         // than the y axis as is the case for Earth, so the right
         // ascension is -90 deg.
-        reference_instant    = 
-            node?.GetAtMostOneValue("reference_instant")
-                ?? "JD2451545.0",
-        mean_radius          =
-            node?.GetAtMostOneValue("mean_radius")
-                ?? (body.Radius + " m"),
-        axis_right_ascension =
-            node?.GetAtMostOneValue("axis_right_ascension")
-                ?? "-90 deg",
-        axis_declination     =
-            node?.GetAtMostOneValue("axis_declination")
-                ?? "90 deg",
-        reference_angle      =
-            node?.GetAtMostOneValue("reference_angle")
-                ?? (body.initialRotation + " deg"),
-        angular_frequency    =
-            node?.GetAtMostOneValue("angular_frequency")
-                ?? (body.angularV + " rad/s"),
-        reference_radius     =
-            node?.GetAtMostOneValue("reference_radius"),
-        j2                   =
-            node?.GetAtMostOneValue("j2"),
-        geopotential            =
-            node?.GetBodyGeopotentialElements()?.ToArray()};
+        reference_instant       =
+            node?.GetAtMostOneValue("reference_instant") ?? "JD2451545.0",
+        min_radius =
+            (body.pqsController?.radiusMin ?? body.Radius) + " m",
+        mean_radius = body.Radius + " m",
+        max_radius =
+            (body.pqsController?.radiusMax ?? body.Radius) + " m",
+        axis_right_ascension    =
+            node?.GetAtMostOneValue("axis_right_ascension") ?? "-90 deg",
+        axis_declination        =
+            node?.GetAtMostOneValue("axis_declination") ?? "90 deg",
+        reference_angle         = node?.GetAtMostOneValue("reference_angle") ??
+                                  (body.initialRotation + " deg"),
+        angular_frequency       =
+            node?.GetAtMostOneValue("angular_frequency") ??
+            (body.angularV + " rad/s"),
+        reference_radius        =
+            node?.GetAtMostOneValue("reference_radius") ??
+            (j2 != null || geopotential != null ? body.Radius + " m" : null),
+        j2                      = j2,
+        geopotential            = geopotential
+    };
   }
 
   private static List<BodyGeopotentialElement> GetBodyGeopotentialElements(
@@ -107,11 +102,13 @@ internal static class ConfigNodeParsers {
           geopotential_row.GetNodes("geopotential_column");
       foreach (ConfigNode geopotential_column in geopotential_columns) {
         string order = geopotential_column.GetUniqueValue("order");
-        string cos = geopotential_column.GetUniqueValue("cos");
+        string j = geopotential_column.GetAtMostOneValue("j");
+        string cos = geopotential_column.GetAtMostOneValue("cos");
         string sin = geopotential_column.GetUniqueValue("sin");
         elements.Add(new BodyGeopotentialElement{degree = degree,
                                                  order = order,
                                                  cos = cos,
+                                                 j = j,
                                                  sin = sin});
       }
     }

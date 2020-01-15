@@ -23,6 +23,7 @@
 #include "quantities/numbers.hpp"
 #include "quantities/quantities.hpp"
 #include "quantities/si.hpp"
+#include "testing_utilities/approximate_quantity.hpp"
 #include "testing_utilities/is_near.hpp"
 #include "testing_utilities/numerics.hpp"
 #include "testing_utilities/statistics.hpp"
@@ -65,6 +66,7 @@ using testing_utilities::IsNear;
 using testing_utilities::PearsonProductMomentCorrelationCoefficient;
 using testing_utilities::RelativeError;
 using testing_utilities::Slope;
+using testing_utilities::operator""_⑴;
 
 namespace astronomy {
 
@@ -93,7 +95,7 @@ std::unique_ptr<Ephemeris<ICRS>> МолнияOrbitTest::ephemeris_;
 
 #if !defined(_DEBUG)
 
-TEST_F(МолнияOrbitTest, Satellite) {
+TEST_F(МолнияOrbitTest, DISABLED_Satellite) {
   auto const earth_body = dynamic_cast_not_null<OblateBody<ICRS> const*>(
       solar_system_2000_.massive_body(*ephemeris_, "Earth"));
   auto const earth_degrees_of_freedom =
@@ -198,7 +200,7 @@ TEST_F(МолнияOrbitTest, Satellite) {
                               (3.0 / 2.0) * Cos(initial_elements.inclination);
   EXPECT_THAT(RelativeError(ΔΩ_per_period / (sidereal_day / 2.0),
                             actual_precession_speed),
-              IsNear(0.076));
+              IsNear(0.076_⑴));
 
   file << mathematica::Assign("ppaDisplacements",
                               mma_displacements);

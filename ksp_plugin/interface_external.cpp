@@ -1,6 +1,7 @@
 ﻿
 #include "ksp_plugin/interface.hpp"
 
+#include <limits>
 #include <string>
 
 #include "absl/strings/str_cat.h"
@@ -44,7 +45,7 @@ Status OK() {
 
 }  // namespace
 
-Status principia__ExternalFlowFreefall(
+Status __cdecl principia__ExternalFlowFreefall(
     Plugin const* const plugin,
     int const central_body_index,
     QP const world_body_centred_initial_degrees_of_freedom,
@@ -66,7 +67,7 @@ Status principia__ExternalFlowFreefall(
                              "|ExternalFlowFreefall| is not yet implemented"));
 }
 
-Status principia__ExternalGeopotentialGetCoefficient(
+Status __cdecl principia__ExternalGeopotentialGetCoefficient(
     Plugin const* const plugin,
     int const body_index,
     int const degree,
@@ -112,7 +113,7 @@ Status principia__ExternalGeopotentialGetCoefficient(
   return m.Return(OK());
 }
 
-Status principia__ExternalGeopotentialGetReferenceRadius(
+Status __cdecl principia__ExternalGeopotentialGetReferenceRadius(
     Plugin const* const plugin,
     int const body_index,
     double* const reference_radius) {
@@ -139,7 +140,7 @@ Status principia__ExternalGeopotentialGetReferenceRadius(
   return m.Return(OK());
 }
 
-Status principia__ExternalGetNearestPlannedCoastDegreesOfFreedom(
+Status __cdecl principia__ExternalGetNearestPlannedCoastDegreesOfFreedom(
     Plugin const* const plugin,
     int const central_body_index,
     char const* const vessel_guid,
@@ -202,16 +203,16 @@ Status principia__ExternalGetNearestPlannedCoastDegreesOfFreedom(
       plugin->NewBodyCentredNonRotatingNavigationFrame(central_body_index);
   DiscreteTrajectory<Navigation> coast;
   for (auto it = coast_begin; it != coast_end; ++it) {
-    coast.Append(it.time(),
-                 body_centred_inertial->ToThisFrameAtTime(it.time())(
-                     it.degrees_of_freedom()));
+    coast.Append(it->time,
+                 body_centred_inertial->ToThisFrameAtTime(it->time)(
+                     it->degrees_of_freedom));
   }
 
   Instant const current_time = plugin->CurrentTime();
   // The given |World| position and requested |World| degrees of freedom are
   // body-centred inertial, so |body_centred_inertial| up to an orthogonal map
   // to world coordinates.  Do the conversion directly.
-  // NOTE(eggrobin): it is correct to use the orthogonal map at |current_time|,
+  // NOTE(egg): it is correct to use the orthogonal map at |current_time|,
   // because |body_centred_inertial| does not rotate with respect to
   // |Barycentric|, so the orthogonal map does not depend on time.
   RigidMotion<Navigation, World> to_world_body_centred_inertial(
@@ -221,41 +222,42 @@ Status principia__ExternalGetNearestPlannedCoastDegreesOfFreedom(
           plugin->renderer().BarycentricToWorld(plugin->PlanetariumRotation()) *
               body_centred_inertial->FromThisFrameAtTime(
                   current_time).orthogonal_map()),
-      AngularVelocity<Navigation>{},
-      Velocity<Navigation>{});
+      Navigation::nonrotating,
+      Navigation::unmoving);
   auto const from_world_body_centred_inertial =
       to_world_body_centred_inertial.Inverse();
   Position<Navigation> reference_position =
       from_world_body_centred_inertial.rigid_transformation()(
           FromXYZ<Position<World>>(world_body_centred_reference_position));
   DiscreteTrajectory<Navigation> immobile_reference;
-  immobile_reference.Append(coast.Begin().time(),
-                            {reference_position, Velocity<Navigation>{}});
+  immobile_reference.Append(coast.front().time,
+                            {reference_position, Navigation::unmoving});
   if (coast.Size() > 1) {
-    immobile_reference.Append(coast.last().time(),
-                              {reference_position, Velocity<Navigation>{}});
+    immobile_reference.Append(coast.back().time,
+                              {reference_position, Navigation::unmoving});
   }
   DiscreteTrajectory<Navigation> apoapsides;
   DiscreteTrajectory<Navigation> periapsides;
   ComputeApsides(/*reference=*/immobile_reference,
-                 coast.Begin(),
-                 coast.End(),
+                 coast.begin(),
+                 coast.end(),
+                 /*max_points=*/std::numeric_limits<int>::max(),
                  apoapsides,
                  periapsides);
   if (periapsides.Empty()) {
     bool const begin_is_nearest =
-        (coast.Begin().degrees_of_freedom().position() -
+        (coast.front().degrees_of_freedom.position() -
          reference_position).Norm²() <
-        (coast.last().degrees_of_freedom().position() -
+        (coast.back().degrees_of_freedom.position() -
          reference_position).Norm²();
     *world_body_centred_nearest_degrees_of_freedom =
         ToQP(to_world_body_centred_inertial(
-            begin_is_nearest ? coast.Begin().degrees_of_freedom()
-                             : coast.last().degrees_of_freedom()));
+            begin_is_nearest ? coast.front().degrees_of_freedom
+                             : coast.back().degrees_of_freedom));
   } else {
     *world_body_centred_nearest_degrees_of_freedom =
         ToQP(to_world_body_centred_inertial(
-            periapsides.Begin().degrees_of_freedom()));
+            periapsides.front().degrees_of_freedom));
   }
   return m.Return(OK());
 }

@@ -13,6 +13,7 @@
 #include "base/not_null.hpp"
 #include "base/thread_pool.hpp"
 #include "benchmark/benchmark.h"
+#include "geometry/frame.hpp"
 #include "geometry/named_quantities.hpp"
 #include "geometry/quaternion.hpp"
 #include "geometry/rotation.hpp"
@@ -43,6 +44,7 @@ using base::ThreadPool;
 using geometry::Bivector;
 using geometry::DefinesFrame;
 using geometry::Displacement;
+using geometry::Frame;
 using geometry::Identity;
 using geometry::Instant;
 using geometry::Position;
@@ -228,13 +230,13 @@ void BM_EphemerisLEOProbe(benchmark::State& state) {
                      *ephemeris,
                      SolarSystemFactory::name(SolarSystemFactory::Sun)).
                          EvaluatePosition(final_time) -
-                 trajectory.last().degrees_of_freedom().position()).
+                 trajectory.back().degrees_of_freedom.position()).
                      Norm();
     earth_error = (at_спутник_1_launch->trajectory(
                        *ephemeris,
                        SolarSystemFactory::name(SolarSystemFactory::Earth)).
                            EvaluatePosition(final_time) -
-                   trajectory.last().degrees_of_freedom().position()).
+                   trajectory.back().degrees_of_freedom.position()).
                        Norm();
     steps = trajectory.Size();
     state.ResumeTiming();
@@ -298,13 +300,13 @@ void BM_EphemerisTranslunarSpaceProbe(benchmark::State& state) {
                      *ephemeris,
                      SolarSystemFactory::name(SolarSystemFactory::Sun)).
                          EvaluatePosition(final_time) -
-                 trajectory.last().degrees_of_freedom().position()).
+                 trajectory.back().degrees_of_freedom.position()).
                      Norm();
     earth_error = (at_спутник_1_launch->trajectory(
                        *ephemeris,
                        SolarSystemFactory::name(SolarSystemFactory::Earth)).
                            EvaluatePosition(final_time) -
-                   trajectory.last().degrees_of_freedom().position()).
+                   trajectory.back().degrees_of_freedom.position()).
                        Norm();
     steps = trajectory.Size();
     state.ResumeTiming();
@@ -392,7 +394,7 @@ void BM_EphemerisMultithreadingBenchmark(benchmark::State& state) {
     Length const earth_distance =
         (at_спутник_1_launch->trajectory(*ephemeris, earth_name).
              EvaluatePosition(final_time) -
-         trajectory.last().degrees_of_freedom().position()).Norm();
+         trajectory.back().degrees_of_freedom.position()).Norm();
     ss << earth_distance << " ";
   }
   state.SetLabel(ss.str());
@@ -435,7 +437,7 @@ void EphemerisL4ProbeBenchmark(Time const integration_duration,
     // plane is the ecliptic realized by the obliquity given by the IAU in 1976
     // (16th general assembly, resolution 10, commission 4, recommendation 1),
     // identifying the ICRS xy plane with the mean equator of J2000.0.
-    struct Ecliptic;
+    using Ecliptic = Frame<enum class EclipticTag>;
 
     Rotation<ICRS, Ecliptic> const equatorial_to_ecliptic(
         23 * Degree + 26 * ArcMinute + 21.448 * ArcSecond,
@@ -486,13 +488,13 @@ void EphemerisL4ProbeBenchmark(Time const integration_duration,
              *ephemeris,
              SolarSystemFactory::name(
                  SolarSystemFactory::Sun)).EvaluatePosition(final_time) -
-         trajectory->last().degrees_of_freedom().position()).Norm();
+         trajectory->back().degrees_of_freedom.position()).Norm();
     earth_error =
         (at_спутник_1_launch->trajectory(
              *ephemeris,
              SolarSystemFactory::name(
                  SolarSystemFactory::Earth)).EvaluatePosition(final_time) -
-         trajectory->last().degrees_of_freedom().position()).Norm();
+         trajectory->back().degrees_of_freedom.position()).Norm();
     steps = trajectory->Size();
     state.ResumeTiming();
   }
@@ -549,8 +551,7 @@ void FlowEphemerisWithAdaptiveStep(
           /*max_steps=*/std::numeric_limits<std::int64_t>::max(),
           /*length_integration_tolerance=*/1 * Metre,
           /*speed_integration_tolerance=*/1 * Metre / Second),
-      Ephemeris<Barycentric>::unlimited_max_ephemeris_steps,
-      /*last_point_only=*/false));
+      Ephemeris<Barycentric>::unlimited_max_ephemeris_steps));
 }
 
 void FlowEphemerisWithFixedStepSLMS(

@@ -1,6 +1,7 @@
 ﻿
 #include <algorithm>
 #include <filesystem>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -29,6 +30,7 @@
 #include "quantities/quantities.hpp"
 #include "quantities/si.hpp"
 #include "testing_utilities/almost_equals.hpp"
+#include "testing_utilities/approximate_quantity.hpp"
 #include "testing_utilities/is_near.hpp"
 #include "testing_utilities/numerics.hpp"
 #include "testing_utilities/statistics.hpp"
@@ -43,7 +45,9 @@ using base::OFStream;
 using geometry::AngularVelocity;
 using geometry::Displacement;
 using geometry::Frame;
+using geometry::Inertial;
 using geometry::Instant;
+using geometry::NonInertial;
 using geometry::OrthogonalMap;
 using geometry::Position;
 using geometry::Vector;
@@ -93,6 +97,8 @@ using testing_utilities::AlmostEquals;
 using testing_utilities::IsNear;
 using testing_utilities::RelativeError;
 using testing_utilities::Slope;
+using testing_utilities::operator""_⑴;
+using ::testing::Lt;
 
 namespace astronomy {
 
@@ -163,27 +169,21 @@ class LunarOrbitTest : public ::testing::TestWithParam<GeopotentialTruncation> {
         moon_(dynamic_cast_not_null<OblateBody<ICRS> const*>(
             solar_system_2000_.massive_body(*ephemeris_, "Moon"))),
         lunar_frame_(ephemeris_.get(), moon_),
-        selenocentre_(Selenocentric::origin, Velocity<Selenocentric>{}) {
+        selenocentre_(Selenocentric::origin, Selenocentric::unmoving) {
     google::LogToStderr();
   }
-
-  enum class LunarTag { surface, selenocentric };
 
   // This Moon-centred, Moon-fixed reference frame has the x axis pointing
   // towards the Earth, and the y axis in the direction of the velocity of the
   // Earth, see figure 1. of Russell and Lara (2006).
-  using LunarSurface = Frame<LunarTag,
-                             LunarTag::surface,
-                             /*frame_is_inertial=*/false>;
+  using LunarSurface = Frame<enum class LunarSurfaceTag, NonInertial>;
 
   // This reference frame is non-rotating, with its origin at the selenocentre.
   // The axes are those of LunarSurface at J2000.
   // Note that this frame is not actually inertial, but we want to use it with
   // |KeplerOrbit|.  Perhaps we should have a concept of non-rotating, and
   // |KeplerOrbit| should check that; this is good enough for a test.
-  using Selenocentric = Frame<LunarTag,
-                              LunarTag::selenocentric,
-                              /*frame_is_inertial=*/true>;
+  using Selenocentric = Frame<enum class SelenocentricTag, Inertial>;
 
   // We do not use a |BodyCentredNonRotatingDynamicFrame| since that would use
   // ICRS axes.
@@ -194,7 +194,7 @@ class LunarOrbitTest : public ::testing::TestWithParam<GeopotentialTruncation> {
             Selenocentric::origin,
             OrthogonalMap<LunarSurface, Selenocentric>::Identity() *
                 lunar_frame_.ToThisFrameAtTime(J2000).orthogonal_map()),
-        /*angular_velocity_of_to_frame=*/AngularVelocity<ICRS>{},
+        /*angular_velocity_of_to_frame=*/ICRS::nonrotating,
         /*velocity_of_to_frame_origin=*/
         ephemeris_->trajectory(moon_)->EvaluateVelocity(t));
   }
@@ -221,8 +221,8 @@ constexpr std::array<GeopotentialTruncation, 4> geopotential_truncations = {
          /*max_degree=*/50,
          /*zonal_only=*/false,
          /*first_period_eccentricity_vector_drift=*/0.00018,
-         /*first_period_descending_nodes=*/{-0.0055, +0.0051, +0.018, +0.027},
-         /*period_ends=*/{+0.0026, +0.0037, +0.0200, +0.021},
+         /*first_period_descending_nodes=*/{-0.0055, +0.0051, -0.027, -0.018},
+         /*period_ends=*/{+0.0026, +0.0037, -0.021, -0.0200},
          /*periods=*/10,
      },
      {
@@ -230,32 +230,32 @@ constexpr std::array<GeopotentialTruncation, 4> geopotential_truncations = {
          /*max_degree=*/30,
          /*zonal_only=*/false,
          /*first_period_eccentricity_vector_drift=*/0.00032,
-         /*first_period_descending_nodes=*/{-0.0058, +0.0048, +0.018, +0.027},
-         /*period_ends=*/{+0.0019, +0.0050, +0.0190, +0.022},
+         /*first_period_descending_nodes=*/{-0.0058, +0.0048, -0.027, -0.018},
+         /*period_ends=*/{+0.0019, +0.0050, -0.022, -0.0190},
          /*periods=*/28,
      },
      {
          /*max_degree=*/25,
          /*zonal_only=*/false,
          /*first_period_eccentricity_vector_drift=*/0.00110,
-         /*first_period_descending_nodes=*/{-0.0060, +0.0044, +0.018, +0.027},
-         /*period_ends=*/{-0.0017, +0.0089, +0.0110, +0.021},
+         /*first_period_descending_nodes=*/{-0.0060, +0.0044, -0.027, -0.018},
+         /*period_ends=*/{-0.0017, +0.0089, -0.021, -0.0110},
          /*periods=*/28,
      },
      {
          /*max_degree=*/20,
          /*zonal_only=*/false,
          /*first_period_eccentricity_vector_drift=*/0.00130,
-         /*first_period_descending_nodes=*/{-0.0064, +0.0045, +0.018, +0.028},
-         /*period_ends=*/{-0.0030, +0.0100, +0.0083, +0.021},
+         /*first_period_descending_nodes=*/{-0.0064, +0.0045, -0.028, -0.018},
+         /*period_ends=*/{-0.0030, +0.0100, -0.021, -0.0083},
          /*periods=*/28,
      },
      {
          /*max_degree=*/10,
          /*zonal_only=*/false,
          /*first_period_eccentricity_vector_drift=*/0.00370,
-         /*first_period_descending_nodes=*/{-0.0091, +0.0036, +0.018, +0.028},
-         /*period_ends=*/{-0.0160, +0.0210, -0.0160, +0.021},
+         /*first_period_descending_nodes=*/{-0.0091, +0.0036, -0.028, -0.018},
+         /*period_ends=*/{-0.0160, +0.0210, -0.021, +0.0160},
          /*periods=*/28,
 #if PRINCIPIA_GEOPOTENTIAL_MAX_DEGREE_50
      },
@@ -263,15 +263,15 @@ constexpr std::array<GeopotentialTruncation, 4> geopotential_truncations = {
          /*max_degree=*/50,
          /*zonal_only=*/true,
          /*first_period_eccentricity_vector_drift=*/0.00098,
-         /*first_period_descending_nodes=*/{+0.0038, +0.0040, +0.021, +0.022},
-         /*period_ends=*/{-0.0047, +0.0040, +0.0170, +0.025},
+         /*first_period_descending_nodes=*/{+0.0038, +0.0040, -0.022, -0.021},
+         /*period_ends=*/{-0.0047, +0.0040, -0.025, -0.0170},
          /*periods=*/28,
 #endif
      }},
 };
 
 INSTANTIATE_TEST_CASE_P(
-    TruncatedSelenopotentials,
+    DISABLED_TruncatedSelenopotentials,
     LunarOrbitTest,
     ::testing::ValuesIn(geopotential_truncations));
 
@@ -310,8 +310,8 @@ TEST_P(LunarOrbitTest, NearCircularRepeatGroundTrackOrbit) {
                          (GM_rl / (Pow<3>(LU_rl) / Pow<2>(TU_rl))));
   EXPECT_THAT(moon_->gravitational_parameter() / (Pow<3>(LU) / Pow<2>(TU)),
               AlmostEquals(GM_rl / (Pow<3>(LU_rl) / Pow<2>(TU_rl)), 1));
-  EXPECT_THAT(RelativeError(TU, TU_rl), IsNear(1.4e-3));
-  EXPECT_THAT(RelativeError(LU, LU_rl), IsNear(9.0e-4));
+  EXPECT_THAT(RelativeError(TU, TU_rl), IsNear(1.4e-3_⑴));
+  EXPECT_THAT(RelativeError(LU, LU_rl), IsNear(9.0e-4_⑴));
 
   file << mathematica::Assign("tu", TU / Second);
   file << mathematica::Assign("lu", LU / Metre);
@@ -352,19 +352,17 @@ TEST_P(LunarOrbitTest, NearCircularRepeatGroundTrackOrbit) {
     // error on our LU with respect to the one in the paper: the semimajor axis
     // has the same value in LU.
     EXPECT_THAT(RelativeError(*initial_osculating.semimajor_axis, a0),
-                IsNear(9.0e-4));
+                IsNear(9.0e-4_⑴));
     EXPECT_THAT(RelativeError(*initial_osculating.eccentricity, e0),
-                IsNear(1.4e-10));
+                IsNear(1.4e-10_⑴));
     EXPECT_THAT(RelativeError(initial_osculating.inclination, i0),
-                IsNear(9.7e-9));
-    // TODO(egg): Figure out why we don't have the same sign as Russel and Lara
-    // here.
-    EXPECT_THAT(
-        RelativeError(*initial_osculating.argument_of_periapsis, -ω0),
-        IsNear(7.1e-11));
+                IsNear(9.7e-9_⑴));
+    EXPECT_THAT(RelativeError(*initial_osculating.argument_of_periapsis,
+                              2 * π * Radian + ω0),
+                IsNear(2.0e-11_⑴));
     EXPECT_THAT(RelativeError(initial_osculating.longitude_of_ascending_node,
                               2 * π * Radian + Ω0),
-                IsNear(4.7e-13));
+                IsNear(4.7e-13_⑴));
   }
 
   DiscreteTrajectory<ICRS> trajectory;
@@ -382,10 +380,9 @@ TEST_P(LunarOrbitTest, NearCircularRepeatGroundTrackOrbit) {
   // To find the nodes, we need to convert the trajectory to a reference frame
   // whose xy plane is the Moon's equator.
   DiscreteTrajectory<LunarSurface> surface_trajectory;
-  for (auto it = trajectory.Begin(); it != trajectory.End(); ++it) {
+  for (auto const& [time, degrees_of_freedom] : trajectory) {
     surface_trajectory.Append(
-        it.time(),
-        lunar_frame_.ToThisFrameAtTime(it.time())(it.degrees_of_freedom()));
+        time, lunar_frame_.ToThisFrameAtTime(time)(degrees_of_freedom));
   }
 
   // Drop the units when logging to Mathematica, because it is ridiculously
@@ -430,17 +427,19 @@ TEST_P(LunarOrbitTest, NearCircularRepeatGroundTrackOrbit) {
 
   DiscreteTrajectory<LunarSurface> ascending_nodes;
   DiscreteTrajectory<LunarSurface> descending_nodes;
-  ComputeNodes(surface_trajectory.Begin(),
-               surface_trajectory.End(),
+  ComputeNodes(surface_trajectory.begin(),
+               surface_trajectory.end(),
                /*north=*/Vector<double, LunarSurface>({0, 0, 1}),
+               /*max_points=*/std::numeric_limits<int>::max(),
                ascending_nodes,
                descending_nodes);
 
   DiscreteTrajectory<ICRS> apoapsides;
   DiscreteTrajectory<ICRS> periapsides;
   ComputeApsides(*ephemeris_->trajectory(moon_),
-                 trajectory.Begin(),
-                 trajectory.End(),
+                 trajectory.begin(),
+                 trajectory.end(),
+                 /*max_points=*/std::numeric_limits<int>::max(),
                  apoapsides,
                  periapsides);
 
@@ -464,20 +463,17 @@ TEST_P(LunarOrbitTest, NearCircularRepeatGroundTrackOrbit) {
     std::vector<double> mma_node_arguments_of_periapsides;
     std::vector<double> mma_node_eccentricities;
 
-    for (auto it = nodes.trajectory.Begin();
-         it != nodes.trajectory.End();
-         ++it) {
-      auto const t = it.time();
+    for (auto const& [time, degrees_of_freedom] : nodes.trajectory) {
       auto const elements = KeplerOrbit<Selenocentric>(
           *moon_,
           satellite_,
-          ToSelenocentric(t)(
-              trajectory.EvaluateDegreesOfFreedom(t)) - selenocentre_,
-          t).elements_at_epoch();
+          ToSelenocentric(time)(
+              trajectory.EvaluateDegreesOfFreedom(time)) - selenocentre_,
+          time).elements_at_epoch();
 
-      mma_node_times.push_back((t - J2000) / Second);
+      mma_node_times.push_back((time - J2000) / Second);
       mma_node_displacements.push_back(
-          (it.degrees_of_freedom().position() - LunarSurface::origin) / Metre);
+          (degrees_of_freedom.position() - LunarSurface::origin) / Metre);
       mma_node_arguments_of_periapsides.push_back(
           *elements.argument_of_periapsis / Radian);
       mma_node_eccentricities.push_back(*elements.eccentricity);
@@ -502,15 +498,11 @@ TEST_P(LunarOrbitTest, NearCircularRepeatGroundTrackOrbit) {
     std::vector<double> mma_apsis_times;
     std::vector<Vector<double, LunarSurface>> mma_apsis_displacements;
 
-    for (auto it = apsides.trajectory.Begin();
-         it != apsides.trajectory.End();
-         ++it) {
-      auto const t = it.time();
-
-      mma_apsis_times.push_back((t - J2000) / Second);
+    for (auto const& [time, degrees_of_freedom] : apsides.trajectory) {
+      mma_apsis_times.push_back((time - J2000) / Second);
       mma_apsis_displacements.push_back(
-          (lunar_frame_.ToThisFrameAtTime(t).rigid_transformation()(
-               it.degrees_of_freedom().position()) -
+          (lunar_frame_.ToThisFrameAtTime(time).rigid_transformation()(
+               degrees_of_freedom.position()) -
            LunarSurface::origin) / Metre);
     }
     file << mathematica::Assign(absl::StrCat(apsides.name, "Times"),
@@ -524,9 +516,10 @@ TEST_P(LunarOrbitTest, NearCircularRepeatGroundTrackOrbit) {
     auto const e1 = descending_node_eccentricities[orbits_per_period];
     auto const ω0 = descending_node_arguments[0];
     auto const ω1 = descending_node_arguments[orbits_per_period];
-    EXPECT_THAT(Sqrt(Pow<2>(e1 * Cos(ω1) - e0 * Cos(ω0)) +
-                     Pow<2>(e1 * Sin(ω1) - e0 * Sin(ω0))),
-                IsNear(GetParam().first_period_eccentricity_vector_drift));
+    EXPECT_THAT(RelativeError(GetParam().first_period_eccentricity_vector_drift,
+                              Sqrt(Pow<2>(e1 * Cos(ω1) - e0 * Cos(ω0)) +
+                                   Pow<2>(e1 * Sin(ω1) - e0 * Sin(ω0)))),
+                Lt(0.035));
   }
 
   {
@@ -540,14 +533,22 @@ TEST_P(LunarOrbitTest, NearCircularRepeatGroundTrackOrbit) {
       actual.min_e_sin_ω = std::min(actual.min_e_sin_ω, e * Sin(ω));
       actual.max_e_sin_ω = std::max(actual.max_e_sin_ω, e * Sin(ω));
     }
-    EXPECT_THAT(actual_first_period_descending_nodes.min_e_cos_ω,
-                IsNear(GetParam().first_period_descending_nodes.min_e_cos_ω));
-    EXPECT_THAT(actual_first_period_descending_nodes.max_e_cos_ω,
-                IsNear(GetParam().first_period_descending_nodes.max_e_cos_ω));
-    EXPECT_THAT(actual_first_period_descending_nodes.min_e_sin_ω,
-                IsNear(GetParam().first_period_descending_nodes.min_e_sin_ω));
-    EXPECT_THAT(actual_first_period_descending_nodes.max_e_sin_ω,
-                IsNear(GetParam().first_period_descending_nodes.max_e_sin_ω));
+    EXPECT_THAT(
+        RelativeError(GetParam().first_period_descending_nodes.min_e_cos_ω,
+                      actual_first_period_descending_nodes.min_e_cos_ω),
+        Lt(0.007));
+    EXPECT_THAT(
+        RelativeError(GetParam().first_period_descending_nodes.max_e_cos_ω,
+                      actual_first_period_descending_nodes.max_e_cos_ω),
+        Lt(0.012));
+    EXPECT_THAT(
+        RelativeError(GetParam().first_period_descending_nodes.min_e_sin_ω,
+                      actual_first_period_descending_nodes.min_e_sin_ω),
+        Lt(0.017));
+    EXPECT_THAT(
+        RelativeError(GetParam().first_period_descending_nodes.max_e_sin_ω,
+                      actual_first_period_descending_nodes.max_e_sin_ω),
+        Lt(0.017));
   }
 
   {
@@ -563,14 +564,18 @@ TEST_P(LunarOrbitTest, NearCircularRepeatGroundTrackOrbit) {
       actual.min_e_sin_ω = std::min(actual.min_e_sin_ω, e * Sin(ω));
       actual.max_e_sin_ω = std::max(actual.max_e_sin_ω, e * Sin(ω));
     }
-    EXPECT_THAT(actual_period_ends.min_e_cos_ω,
-                IsNear(GetParam().period_ends.min_e_cos_ω));
-    EXPECT_THAT(actual_period_ends.max_e_cos_ω,
-                IsNear(GetParam().period_ends.max_e_cos_ω));
-    EXPECT_THAT(actual_period_ends.min_e_sin_ω,
-                IsNear(GetParam().period_ends.min_e_sin_ω));
-    EXPECT_THAT(actual_period_ends.max_e_sin_ω,
-                IsNear(GetParam().period_ends.max_e_sin_ω));
+    EXPECT_THAT(RelativeError(GetParam().period_ends.min_e_cos_ω,
+                              actual_period_ends.min_e_cos_ω),
+                Lt(0.015));
+    EXPECT_THAT(RelativeError(GetParam().period_ends.max_e_cos_ω,
+                              actual_period_ends.max_e_cos_ω),
+                Lt(0.019));
+    EXPECT_THAT(RelativeError(GetParam().period_ends.min_e_sin_ω,
+                              actual_period_ends.min_e_sin_ω),
+                Lt(0.017));
+    EXPECT_THAT(RelativeError(GetParam().period_ends.max_e_sin_ω,
+                              actual_period_ends.max_e_sin_ω),
+                Lt(0.027));
   }
 }
 

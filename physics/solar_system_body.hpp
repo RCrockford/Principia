@@ -109,16 +109,14 @@ SolarSystem<Frame>::SolarSystem(
 
   // Store the data in maps keyed by body name.
   for (auto& body : *gravity_model_.mutable_body()) {
-    bool inserted;
-    std::tie(std::ignore, inserted) =
-        gravity_model_map_.insert(std::make_pair(body.name(), &body));
+    bool const inserted =
+        gravity_model_map_.insert(std::make_pair(body.name(), &body)).second;
     CHECK(inserted) << body.name();
   }
   if (initial_state_.has_cartesian()) {
     for (auto const& body : initial_state_.cartesian().body()) {
-      bool inserted;
-      std::tie(std::ignore, inserted) =
-          cartesian_initial_state_map_.emplace(body.name(), &body);
+      bool const inserted =
+          cartesian_initial_state_map_.emplace(body.name(), &body).second;
       CHECK(inserted) << body.name();
     }
 
@@ -135,9 +133,8 @@ SolarSystem<Frame>::SolarSystem(
     CHECK(it2 == cartesian_initial_state_map_.end()) << it2->first;
   } else {
     for (auto& body : *initial_state_.mutable_keplerian()->mutable_body()) {
-      bool inserted;
-      std::tie(std::ignore, inserted) =
-          keplerian_initial_state_map_.emplace(body.name(), &body);
+      bool const inserted =
+          keplerian_initial_state_map_.emplace(body.name(), &body).second;
       CHECK(inserted) << body.name();
     }
 
@@ -169,27 +166,6 @@ SolarSystem<Frame>::SolarSystem(
 }
 
 template<typename Frame>
-SolarSystem<Frame>::SolarSystem(SolarSystem const& other)
-    : SolarSystem(other.gravity_model_,
-                  other.initial_state_,
-                  /*ignore_frame=*/true) {}
-
-template<typename Frame>
-SolarSystem<Frame>& SolarSystem<Frame>::operator=(const SolarSystem& other) {
-  if (&other == this) {
-    return *this;
-  }
-  SolarSystem copy(other);  // NOLINT(build/include_what_you_use)
-  gravity_model_.Swap(copy.gravity_model_);
-  initial_state_.Swap(copy.initial_state_);
-  epoch_ = copy.epoch_;
-  names_.swap(copy.names_);
-  gravity_model_map_.swap(copy.gravity_model_map_);
-  cartesian_initial_state_map_.swap(copy.cartesian_initial_state_map_);
-  keplerian_initial_state_map_.swap(copy.keplerian_initial_state_map_);
-}
-
-template<typename Frame>
 not_null<std::unique_ptr<Ephemeris<Frame>>> SolarSystem<Frame>::MakeEphemeris(
     typename Ephemeris<Frame>::AccuracyParameters const& accuracy_parameters,
     typename Ephemeris<Frame>::FixedStepParameters const& fixed_step_parameters)
@@ -205,8 +181,7 @@ template<typename Frame>
 std::vector<not_null<std::unique_ptr<MassiveBody const>>>
 SolarSystem<Frame>::MakeAllMassiveBodies() const {
   std::vector<not_null<std::unique_ptr<MassiveBody const>>> bodies;
-  for (auto const& pair : gravity_model_map_) {
-    serialization::GravityModel::Body const* const body = pair.second;
+  for (auto const& [_, body] : gravity_model_map_) {
     bodies.emplace_back(MakeMassiveBody(*body));
   }
   return bodies;
@@ -416,9 +391,7 @@ SolarSystem<Frame>::MakeHierarchicalSystem() const {
   std::map<std::string,
             not_null<std::unique_ptr<MassiveBody const>>> owned_bodies;
   std::map<std::string, not_null<MassiveBody const*>> unowned_bodies;
-  for (auto const& pair : keplerian_initial_state_map_) {
-    const auto& name = pair.first;
-    serialization::InitialState::Keplerian::Body* const body = pair.second;
+  for (auto const& [name, body] : keplerian_initial_state_map_) {
     CHECK_EQ(body->has_parent(), body->has_elements()) << name;
     if (!body->has_parent()) {
       CHECK(primary.empty()) << name;
@@ -436,9 +409,7 @@ SolarSystem<Frame>::MakeHierarchicalSystem() const {
   std::set<std::string> previous_layer = {primary};
   std::set<std::string> current_layer;
   do {
-    for (auto const& pair : keplerian_initial_state_map_) {
-      const auto& name = pair.first;
-      serialization::InitialState::Keplerian::Body* const body = pair.second;
+    for (auto const& [name, body] : keplerian_initial_state_map_) {
       if (Contains(previous_layer, body->parent())) {
         current_layer.insert(name);
         KeplerianElements<Frame> const elements =
@@ -555,6 +526,8 @@ void SolarSystem<Frame>::Check(serialization::GravityModel::Body const& body) {
   CHECK(body.has_name());
   CHECK(body.has_gravitational_parameter() || body.has_mass()) << body.name();
   CHECK_EQ(body.has_reference_instant(), body.has_mean_radius()) << body.name();
+  CHECK(body.has_mean_radius() || !body.has_min_radius()) << body.name();
+  CHECK(body.has_mean_radius() || !body.has_max_radius()) << body.name();
   CHECK_EQ(body.has_reference_instant(),
            body.has_axis_right_ascension()) << body.name();
   CHECK_EQ(body.has_reference_instant(),
@@ -591,8 +564,14 @@ template<typename Frame>
 not_null<std::unique_ptr<typename RotatingBody<Frame>::Parameters>>
 SolarSystem<Frame>::MakeRotatingBodyParameters(
     serialization::GravityModel::Body const& body) {
+  auto const min_radius =
+      body.has_min_radius() ? body.min_radius() : body.mean_radius();
+  auto const max_radius =
+      body.has_max_radius() ? body.max_radius() : body.mean_radius();
   return make_not_null_unique<typename RotatingBody<Frame>::Parameters>(
+      ParseQuantity<Length>(min_radius),
       ParseQuantity<Length>(body.mean_radius()),
+      ParseQuantity<Length>(max_radius),
       ParseQuantity<Angle>(body.reference_angle()),
       ParseTT(body.reference_instant()),
       ParseQuantity<AngularFrequency>(body.angular_frequency()),
@@ -625,9 +604,7 @@ std::vector<DegreesOfFreedom<Frame>>
 SolarSystem<Frame>::MakeAllDegreesOfFreedom() const {
   std::vector<DegreesOfFreedom<Frame>> degrees_of_freedom;
   if (!cartesian_initial_state_map_.empty()) {
-    for (auto const& pair : cartesian_initial_state_map_) {
-      serialization::InitialState::Cartesian::Body const* const body =
-          pair.second;
+    for (auto const& [_, body] : cartesian_initial_state_map_) {
       degrees_of_freedom.push_back(MakeDegreesOfFreedom(*body));
     }
   }
@@ -657,10 +634,12 @@ template<typename Frame>
 template<typename Message>
 void SolarSystem<Frame>::CheckFrame(Message const& message) {
   if (message.has_solar_system_frame()) {
-    CHECK_EQ(Frame::tag, message.solar_system_frame());
+    CHECK_EQ(static_cast<int>(Frame::tag),
+             static_cast<int>(message.solar_system_frame()));
   }
   if (message.has_plugin_frame()) {
-    CHECK_EQ(Frame::tag, message.plugin_frame());
+    CHECK_EQ(static_cast<int>(Frame::tag),
+             static_cast<int>(message.plugin_frame()));
   }
 }
 

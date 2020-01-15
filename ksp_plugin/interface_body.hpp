@@ -12,6 +12,8 @@ namespace interface {
 
 using integrators::AdaptiveStepSizeIntegrator;
 using physics::Ephemeris;
+using quantities::Pow;
+using quantities::SIUnit;
 using quantities::si::Degree;
 using quantities::si::Metre;
 using quantities::si::Radian;
@@ -84,6 +86,30 @@ struct XYZConverter<Velocity<Frame>> {
   }
 };
 
+template<typename Frame>
+struct XYZConverter<AngularVelocity<Frame>> {
+  static AngularVelocity<Frame> FromXYZ(XYZ const& xyz) {
+    return AngularVelocity<Frame>(interface::FromXYZ(xyz) * (Radian / Second));
+  }
+  static XYZ ToXYZ(AngularVelocity<Frame> const& velocity) {
+    return interface::ToXYZ(velocity.coordinates() / (Radian / Second));
+  }
+};
+
+template<>
+struct XYZConverter<R3Element<MomentOfInertia>> {
+  static R3Element<MomentOfInertia> FromXYZ(XYZ const& xyz) {
+    return R3Element<MomentOfInertia>(xyz.x * SIUnit<MomentOfInertia>(),
+                                      xyz.y * SIUnit<MomentOfInertia>(),
+                                      xyz.z * SIUnit<MomentOfInertia>());
+  }
+  static XYZ ToXYZ(R3Element<MomentOfInertia> const& moments_of_inertia) {
+    return {moments_of_inertia.x / SIUnit<MomentOfInertia>(),
+            moments_of_inertia.y / SIUnit<MomentOfInertia>(),
+            moments_of_inertia.z / SIUnit<MomentOfInertia>()};
+  }
+};
+
 inline bool NaNIndependentEq(double const left, double const right) {
   return (left == right) || (std::isnan(left) && std::isnan(right));
 }
@@ -136,6 +162,11 @@ inline bool operator==(FlightPlanAdaptiveStepParameters const& left,
                           right.speed_integration_tolerance);
 }
 
+inline bool operator==(Interval const& left, Interval const& right) {
+  return NaNIndependentEq(left.min, right.min) &&
+         NaNIndependentEq(left.max, right.max);
+}
+
 inline bool operator==(NavigationFrameParameters const& left,
                        NavigationFrameParameters const& right) {
   return left.extension == right.extension &&
@@ -165,6 +196,52 @@ inline bool operator==(NavigationManoeuvreFrenetTrihedron const& left,
   return left.binormal == right.binormal &&
          left.normal == right.normal &&
          left.tangent == right.tangent;
+}
+
+inline bool operator==(OrbitAnalysis const& left, OrbitAnalysis const& right) {
+  return left.elements == right.elements &&
+         left.ground_track == right.ground_track &&
+         left.mission_duration == right.mission_duration &&
+         left.primary_index == right.primary_index &&
+         left.progress_of_next_analysis && right.progress_of_next_analysis &&
+         left.recurrence == right.recurrence;
+}
+
+inline bool operator==(EquatorialCrossings const& left,
+                       EquatorialCrossings const& right) {
+  return left.longitudes_reduced_to_ascending_pass ==
+             right.longitudes_reduced_to_ascending_pass &&
+         left.longitudes_reduced_to_descending_pass ==
+             right.longitudes_reduced_to_descending_pass;
+}
+
+inline bool operator==(OrbitGroundTrack const& left,
+                       OrbitGroundTrack const& right) {
+  return left.equatorial_crossings == right.equatorial_crossings;
+}
+
+inline bool operator==(OrbitRecurrence const& left,
+                       OrbitRecurrence const& right) {
+  return NaNIndependentEq(left.base_interval, right.base_interval) &&
+         left.cto == right.cto && left.dto == right.dto &&
+         NaNIndependentEq(left.equatorial_shift, right.equatorial_shift) &&
+         NaNIndependentEq(left.grid_interval, right.grid_interval) &&
+         left.number_of_revolutions == right.number_of_revolutions &&
+         left.nuo == right.nuo && left.subcycle == right.subcycle;
+}
+
+inline bool operator==(OrbitalElements const& left,
+                       OrbitalElements const& right) {
+  return NaNIndependentEq(left.anomalistic_period, right.anomalistic_period) &&
+         left.mean_argument_of_periapsis == right.mean_argument_of_periapsis &&
+         left.mean_eccentricity == right.mean_eccentricity &&
+         left.mean_inclination == right.mean_inclination &&
+         left.mean_longitude_of_ascending_nodes ==
+             right.mean_longitude_of_ascending_nodes &&
+         left.mean_semimajor_axis == right.mean_semimajor_axis &&
+         NaNIndependentEq(left.nodal_period, right.nodal_period) &&
+         NaNIndependentEq(left.nodal_precession, right.nodal_precession) &&
+         NaNIndependentEq(left.sidereal_period, right.sidereal_period);
 }
 
 inline bool operator==(QP const& left, QP const& right) {
@@ -267,6 +344,15 @@ inline RelativeDegreesOfFreedom<World> FromQP(QP const& qp) {
   return QPConverter<RelativeDegreesOfFreedom<World>>::FromQP(qp);
 }
 
+inline Quaternion FromWXYZ(WXYZ const& wxyz) {
+  // It is critical to normalize the quaternion that we receive from Unity: it
+  // is normalized in *single* precision, which is fine for KSP where the moving
+  // origin of World ensures that coordinates are never very large.  But in the
+  // C++ code we do some computations in Barycentric, which typically results in
+  // large coordinates for which we need normalization in *double* precision.
+  return Normalize(Quaternion{wxyz.w, {wxyz.x, wxyz.y, wxyz.z}});
+}
+
 inline R3Element<double> FromXYZ(XYZ const& xyz) {
   return {xyz.x, xyz.y, xyz.z};
 }
@@ -280,6 +366,18 @@ template<>
 Velocity<Frenet<NavigationFrame>>
 inline FromXYZ<Velocity<Frenet<NavigationFrame>>>(XYZ const& xyz) {
   return XYZConverter<Velocity<Frenet<NavigationFrame>>>::FromXYZ(xyz);
+}
+
+template<>
+AngularVelocity<World>
+inline FromXYZ<AngularVelocity<World>>(XYZ const& xyz) {
+  return XYZConverter<AngularVelocity<World>>::FromXYZ(xyz);
+}
+
+template<>
+R3Element<MomentOfInertia>
+inline FromXYZ<R3Element<MomentOfInertia>>(XYZ const& xyz) {
+  return XYZConverter<R3Element<MomentOfInertia>>::FromXYZ(xyz);
 }
 
 inline AdaptiveStepParameters ToAdaptiveStepParameters(
@@ -371,6 +469,12 @@ inline XYZ ToXYZ(Vector<double, World> const& direction) {
 
 inline XYZ ToXYZ(Velocity<World> const& velocity) {
   return XYZConverter<Velocity<World>>::ToXYZ(velocity);
+}
+
+template<typename T>
+Interval ToInterval(geometry::Interval<T> const& interval) {
+  return {interval.min / quantities::SIUnit<T>(),
+          interval.max / quantities::SIUnit<T>()};
 }
 
 inline Instant FromGameTime(Plugin const& plugin,

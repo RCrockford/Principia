@@ -206,8 +206,8 @@ OrthogonalMap<Frenet<Frame>, InertialFrame>
   CHECK_NOTNULL(coasting_trajectory_);
   typename DiscreteTrajectory<InertialFrame>::Iterator const it =
       coasting_trajectory_->Find(initial_time());
-  CHECK(it != coasting_trajectory_->End());
-  return ComputeFrenetFrame(initial_time(), it.degrees_of_freedom());
+  CHECK(it != coasting_trajectory_->end());
+  return ComputeFrenetFrame(initial_time(), it->degrees_of_freedom);
 }
 
 template<typename InertialFrame, typename Frame>
@@ -253,7 +253,8 @@ Manœuvre<InertialFrame, Frame>::ComputeFrenetFrame(
   RigidMotion<Frame, InertialFrame> const from_frame_at_t =
       to_frame_at_t.Inverse();
   return from_frame_at_t.orthogonal_map() *
-         frame()->FrenetFrame(t, to_frame_at_t(degrees_of_freedom)).Forget();
+         frame()->FrenetFrame(t, to_frame_at_t(degrees_of_freedom))
+             .template Forget<OrthogonalMap>();
 }
 
 template<typename InertialFrame, typename Frame>

@@ -7,6 +7,10 @@
 #include "base/array.hpp"
 #include "base/hexadecimal.hpp"
 #include "base/not_null.hpp"
+#include "geometry/r3x3_matrix.hpp"
+#include "physics/rigid_motion.hpp"
+#include "quantities/named_quantities.hpp"
+#include "quantities/quantities.hpp"
 
 namespace principia {
 namespace ksp_plugin {
@@ -16,23 +20,26 @@ using base::Array;
 using base::HexadecimalEncoder;
 using base::make_not_null_unique;
 using base::UniqueArray;
+using geometry::R3x3Matrix;
+using physics::RigidTransformation;
+using quantities::MomentOfInertia;
+using quantities::SIUnit;
 
 Part::Part(
     PartId const part_id,
     std::string const& name,
-    Mass const& mass,
-    DegreesOfFreedom<Barycentric> const& degrees_of_freedom,
+    InertiaTensor<RigidPart> const& inertia_tensor,
+    RigidMotion<RigidPart, Barycentric> const& rigid_motion,
     std::function<void()> deletion_callback)
     : part_id_(part_id),
       name_(name),
-      mass_(mass),
-      degrees_of_freedom_(degrees_of_freedom),
+      inertia_tensor_(inertia_tensor),
+      rigid_motion_(rigid_motion),
       prehistory_(make_not_null_unique<DiscreteTrajectory<Barycentric>>()),
       subset_node_(make_not_null_unique<Subset<Part>::Node>()),
       deletion_callback_(std::move(deletion_callback)) {
-  CHECK_GT(mass_, Mass{}) << ShortDebugString();
   prehistory_->Append(astronomy::InfinitePast,
-                      {Barycentric::origin, Velocity<Barycentric>()});
+                      {Barycentric::origin, Barycentric::unmoving});
   history_ = prehistory_->NewForkAtLast();
 }
 
@@ -47,13 +54,12 @@ PartId Part::part_id() const {
   return part_id_;
 }
 
-void Part::set_mass(Mass const& mass) {
-  CHECK_GT(mass, Mass{}) << ShortDebugString();
-  mass_ = mass;
+void Part::set_inertia_tensor(InertiaTensor<RigidPart> const& inertia_tensor) {
+  inertia_tensor_ = inertia_tensor;
 }
 
-Mass const& Part::mass() const {
-  return mass_;
+InertiaTensor<RigidPart> const& Part::inertia_tensor() const {
+  return inertia_tensor_;
 }
 
 void Part::clear_intrinsic_force() {
@@ -69,14 +75,17 @@ Vector<Force, Barycentric> const& Part::intrinsic_force() const {
   return intrinsic_force_;
 }
 
-void Part::set_degrees_of_freedom(
-    DegreesOfFreedom<Barycentric> const& degrees_of_freedom) {
-  degrees_of_freedom_ = degrees_of_freedom;
+void Part::set_rigid_motion(
+    RigidMotion<RigidPart, Barycentric> const& rigid_motion) {
+  rigid_motion_ = rigid_motion;
 }
 
-DegreesOfFreedom<Barycentric> const&
-Part::degrees_of_freedom() const {
-  return degrees_of_freedom_;
+RigidMotion<RigidPart, Barycentric> const& Part::rigid_motion() const {
+  return rigid_motion_;
+}
+
+DegreesOfFreedom<Barycentric> Part::degrees_of_freedom() const {
+  return rigid_motion_({RigidPart::origin, RigidPart::unmoving});
 }
 
 DiscreteTrajectory<Barycentric>::Iterator Part::history_begin() {
@@ -86,7 +95,7 @@ DiscreteTrajectory<Barycentric>::Iterator Part::history_begin() {
 }
 
 DiscreteTrajectory<Barycentric>::Iterator Part::history_end() {
-  return history_->End();
+  return history_->end();
 }
 
 DiscreteTrajectory<Barycentric>::Iterator Part::psychohistory_begin() {
@@ -102,7 +111,7 @@ DiscreteTrajectory<Barycentric>::Iterator Part::psychohistory_end() {
   if (psychohistory_ == nullptr) {
     psychohistory_ = history_->NewForkAtLast();
   }
-  return psychohistory_->End();
+  return psychohistory_->end();
 }
 
 void Part::AppendToHistory(
@@ -159,13 +168,13 @@ void Part::WriteToMessage(not_null<serialization::Part*> const message,
                               serialization_index_for_pile_up) const {
   message->set_part_id(part_id_);
   message->set_name(name_);
-  mass_.WriteToMessage(message->mutable_mass());
+  inertia_tensor_.WriteToMessage(message->mutable_inertia_tensor());
   intrinsic_force_.WriteToMessage(message->mutable_intrinsic_force());
   if (containing_pile_up_) {
     message->set_containing_pile_up(
         serialization_index_for_pile_up(containing_pile_up_.get()));
   }
-  degrees_of_freedom_.WriteToMessage(message->mutable_degrees_of_freedom());
+  rigid_motion_.WriteToMessage(message->mutable_rigid_motion());
   prehistory_->WriteToMessage(message->mutable_prehistory(),
                               /*forks=*/{history_, psychohistory_});
 }
@@ -174,13 +183,32 @@ not_null<std::unique_ptr<Part>> Part::ReadFromMessage(
     serialization::Part const& message,
     std::function<void()> deletion_callback) {
   bool const is_pre_cesàro = message.has_tail_is_authoritative();
-  not_null<std::unique_ptr<Part>> part =
-      make_not_null_unique<Part>(message.part_id(),
-                                 message.name(),
-                                 Mass::ReadFromMessage(message.mass()),
-                                 DegreesOfFreedom<Barycentric>::ReadFromMessage(
-                                     message.degrees_of_freedom()),
-                                 std::move(deletion_callback));
+  bool const is_pre_fréchet = message.has_mass() &&
+                              message.has_degrees_of_freedom();
+
+  std::unique_ptr<Part> part;
+  if (is_pre_fréchet) {
+    auto const degrees_of_freedom =
+        DegreesOfFreedom<Barycentric>::ReadFromMessage(
+            message.degrees_of_freedom());
+    part = make_not_null_unique<Part>(
+        message.part_id(),
+        message.name(),
+        InertiaTensor<RigidPart>::MakeWaterSphereInertiaTensor(
+            Mass::ReadFromMessage(message.mass())),
+        RigidMotion<RigidPart, Barycentric>::MakeNonRotatingMotion(
+            degrees_of_freedom),
+        std::move(deletion_callback));
+  } else {
+    part = make_not_null_unique<Part>(
+        message.part_id(),
+        message.name(),
+        InertiaTensor<RigidPart>::ReadFromMessage(message.inertia_tensor()),
+        RigidMotion<RigidPart, Barycentric>::ReadFromMessage(
+            message.rigid_motion()),
+        std::move(deletion_callback));
+  }
+
   part->increment_intrinsic_force(
       Vector<Force, Barycentric>::ReadFromMessage(message.intrinsic_force()));
   if (is_pre_cesàro) {
@@ -189,11 +217,13 @@ not_null<std::unique_ptr<Part>> Part::ReadFromMessage(
         /*forks=*/{});
     // The |prehistory_| and |history_| have been created by the constructor
     // above.  Construct the various trajectories from the |tail|.
-    for (auto it = tail->Begin(); it != tail->End(); ++it) {
-      if (it == tail->last() && !message.tail_is_authoritative()) {
-        part->AppendToPsychohistory(it.time(), it.degrees_of_freedom());
+    for (auto it = tail->begin(); it != tail->end();) {
+      auto const& [time, degrees_of_freedom] = *it;
+      ++it;
+      if (it == tail->end() && !message.tail_is_authoritative()) {
+        part->AppendToPsychohistory(time, degrees_of_freedom);
       } else {
-        part->AppendToHistory(it.time(), it.degrees_of_freedom());
+        part->AppendToHistory(time, degrees_of_freedom);
       }
     }
   } else {
@@ -202,7 +232,7 @@ not_null<std::unique_ptr<Part>> Part::ReadFromMessage(
         message.prehistory(),
         /*forks=*/{&part->history_, &part->psychohistory_});
   }
-  return part;
+  return std::move(part);
 }
 
 void Part::FillContainingPileUpFromMessage(
@@ -226,7 +256,7 @@ std::string Part::ShortDebugString() const {
 std::ostream& operator<<(std::ostream& out, Part const& part) {
   return out << "{"
              << part.part_id() << ", "
-             << part.mass() << "}";
+             << part.inertia_tensor().mass() << "}";
 }
 
 }  // namespace internal_part

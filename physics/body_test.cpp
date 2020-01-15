@@ -4,6 +4,7 @@
 #include "astronomy/epoch.hpp"
 #include "astronomy/frames.hpp"
 #include "astronomy/time_scales.hpp"
+#include "geometry/frame.hpp"
 #include "geometry/named_quantities.hpp"
 #include "geometry/r3_element.hpp"
 #include "gmock/gmock.h"
@@ -19,6 +20,7 @@
 #include "quantities/si.hpp"
 #include "serialization/geometry.pb.h"
 #include "testing_utilities/almost_equals.hpp"
+#include "testing_utilities/approximate_quantity.hpp"
 #include "testing_utilities/is_near.hpp"
 
 namespace principia {
@@ -33,6 +35,8 @@ using geometry::AngularVelocity;
 using geometry::Bivector;
 using geometry::Displacement;
 using geometry::Frame;
+using geometry::Handedness;
+using geometry::Inertial;
 using geometry::Instant;
 using geometry::Normalize;
 using geometry::OrientedAngleBetween;
@@ -60,20 +64,23 @@ using quantities::si::Radian;
 using quantities::si::Second;
 using testing_utilities::AlmostEquals;
 using testing_utilities::IsNear;
+using testing_utilities::operator""_⑴;
 using ::testing::IsNull;
 using ::testing::NotNull;
 
 class BodyTest : public testing::Test {
  protected:
   using World = Frame<serialization::Frame::TestTag,
-                      serialization::Frame::TEST, true>;
+                      Inertial,
+                      Handedness::Right,
+                      serialization::Frame::TEST1>;
 
   // We need that so the comma doesn't get caught in macros.
   using Direction = Vector<double, World>;
 
   template<typename Tag, Tag tag>
   void TestRotatingBody() {
-    using F = Frame<Tag, tag, true>;
+    using F = Frame<Tag, Inertial, Handedness::Right, tag>;
 
     auto const rotating_body =
         RotatingBody<F>(17 * SIUnit<GravitationalParameter>(),
@@ -351,7 +358,7 @@ TEST_F(BodyTest, AllFrames) {
 
 // Check that the rotation of the Earth gives the right solar noon.
 TEST_F(BodyTest, SolarNoon) {
-  struct SurfaceFrame;
+  using SurfaceFrame = Frame<enum class SurfaceFrameTag>;
   SolarSystem<ICRS> solar_system_j2000(
       SOLUTION_DIR / "astronomy" / "sol_gravity_model.proto.txt",
       SOLUTION_DIR / "astronomy" /
@@ -397,24 +404,24 @@ TEST_F(BodyTest, SolarNoon) {
                                      "2000-01-02T08:00:00"_UTC,
                                      "2000-01-02T16:00:00"_UTC);
   EXPECT_THAT(solar_noon_greenwich - "2000-01-02T12:04:00"_UTC,
-              IsNear(-15 * Milli(Second)));
+              IsNear(-15_⑴ * Milli(Second)));
   solar_noon_greenwich = Bisect(solar_noon,
                                 "2010-09-30T08:00:00"_UTC,
                                 "2010-09-30T16:00:00"_UTC);
   EXPECT_THAT(solar_noon_greenwich - "2010-09-30T11:51:00"_UTC,
-              IsNear(-58 * Second));
+              IsNear(-58_⑴ * Second));
 
   location = Vector<double, SurfaceFrame>(istanbul.ToCartesian());
   auto solar_noon_istanbul = Bisect(solar_noon,
                                     "2000-01-02T08:00:00"_UTC,
                                     "2000-01-02T16:00:00"_UTC);
   EXPECT_THAT(solar_noon_istanbul - "2000-01-02T10:08:00"_UTC,
-              IsNear(1.05 * Second));
+              IsNear(1.05_⑴ * Second));
   solar_noon_istanbul = Bisect(solar_noon,
                                "2010-09-30T08:00:00"_UTC,
                                "2010-09-30T16:00:00"_UTC);
   EXPECT_THAT(solar_noon_istanbul - "2010-09-30T09:55:00"_UTC,
-              IsNear(-53 * Second));
+              IsNear(-53_⑴ * Second));
 }
 
 #endif

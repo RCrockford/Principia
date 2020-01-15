@@ -34,7 +34,9 @@ using geometry::Bivector;
 using geometry::DefinesFrame;
 using geometry::Displacement;
 using geometry::Frame;
+using geometry::Handedness;
 using geometry::Instant;
+using geometry::NonInertial;
 using geometry::Position;
 using geometry::Rotation;
 using geometry::Vector;
@@ -69,9 +71,13 @@ class BodyCentredNonRotatingDynamicFrameTest : public ::testing::Test {
  protected:
   // The non-rotating frame centred on the big body.
   using Big = Frame<serialization::Frame::TestTag,
-                    serialization::Frame::TEST, /*inertial=*/false>;
+                    NonInertial,
+                    Handedness::Right,
+                    serialization::Frame::TEST>;
   using Small = Frame<serialization::Frame::TestTag,
-                      serialization::Frame::TEST1, /*inertial=*/false>;
+                      NonInertial,
+                      Handedness::Right,
+                      serialization::Frame::TEST1>;
 
   BodyCentredNonRotatingDynamicFrameTest()
       : period_(10 * π * sqrt(5.0 / 7.0) * Second),
@@ -197,7 +203,7 @@ TEST_F(BodyCentredNonRotatingDynamicFrameTest, GeometricAcceleration) {
     EXPECT_THAT(AbsoluteError(
                     big_frame_->GeometricAcceleration(
                         t0_,
-                        DegreesOfFreedom<Big>(position, Velocity<Big>())),
+                        DegreesOfFreedom<Big>(position, Big::unmoving)),
                     expected_acceleration),
                 Lt(1e-10 * SIUnit<Acceleration>()));
   }

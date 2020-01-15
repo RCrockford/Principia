@@ -20,6 +20,9 @@ template<typename D>
 constexpr Quantity<D>::Quantity() : magnitude_(0) {}
 
 template<typename D>
+constexpr Quantity<D>::Quantity(uninitialized_t) {}
+
+template<typename D>
 constexpr Quantity<D>::Quantity(double const magnitude)
     : magnitude_(magnitude) {}
 
@@ -189,15 +192,32 @@ constexpr Q NaN() {
   return SIUnit<Q>() * std::numeric_limits<double>::quiet_NaN();
 }
 
-inline std::string FormatUnit(std::string const& name, int const exponent) {
-  switch (exponent) {
-    case 0:
-      return "";
-      break;
-    case 1:
-      return " " + name;
-    default:
-      return " " + name + "^" + std::to_string(exponent);
+template<typename D>
+std::string Format() {
+  auto const format_unit = [](std::string const& name,
+                              int const exponent) -> std::string {
+    switch (exponent) {
+      case 0:
+        return "";
+        break;
+      case 1:
+        return " " + name;
+      default:
+        return " " + name + "^" + std::to_string(exponent);
+    }
+  };
+
+  // This string has a leading space if it's not empty.
+  auto const format =
+      format_unit("m", D::Length) + format_unit("kg", D::Mass) +
+      format_unit("s", D::Time) + format_unit("A", D::Current) +
+      format_unit("K", D::Temperature) + format_unit("mol", D::Amount) +
+      format_unit("cd", D::LuminousIntensity) + format_unit("rad", D::Angle);
+
+  if (format.empty()) {
+    return format;
+  } else {
+    return format.substr(1, format.size() - 1);
   }
 }
 
@@ -220,11 +240,8 @@ inline std::string DebugString(double const number, int const precision) {
 
 template<typename D>
 std::string DebugString(Quantity<D> const& quantity, int const precision) {
-  return DebugString(quantity / SIUnit<Quantity<D>>(), precision) +
-      FormatUnit("m", D::Length) + FormatUnit("kg", D::Mass) +
-      FormatUnit("s", D::Time) + FormatUnit("A", D::Current) +
-      FormatUnit("K", D::Temperature) + FormatUnit("mol", D::Amount) +
-      FormatUnit("cd", D::LuminousIntensity) + FormatUnit("rad", D::Angle);
+  return DebugString(quantity / SIUnit<Quantity<D>>(), precision) + " " +
+         Format<D>();
 }
 
 template<typename D>

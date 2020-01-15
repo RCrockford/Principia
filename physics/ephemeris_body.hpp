@@ -70,7 +70,7 @@ constexpr Length pre_ἐρατοσθένης_default_ephemeris_fitting_tolerance
 constexpr Time max_time_between_checkpoints = 180 * Day;
 // Below this threshold detect a collision to prevent the integrator and the
 // downsampling from going postal.
-constexpr double mean_radius_tolerance = 0.9;
+constexpr double min_radius_tolerance = 0.99;
 
 inline Status const CollisionDetected() {
   return Status(Error::OUT_OF_RANGE, "Collision detected");
@@ -234,10 +234,7 @@ Ephemeris<Frame>::Ephemeris(
       fixed_step_parameters_(fixed_step_parameters),
       checkpointer_(
           make_not_null_unique<Checkpointer<serialization::Ephemeris>>(
-              /*reader=*/
-              [this](serialization::Ephemeris const& message) {
-                return ReadFromCheckpoint(message);
-              },
+              /*reader=*/MakeCheckpointerReader(this),
               /*writer=*/
               [this](not_null<serialization::Ephemeris*> const message) {
                 WriteToCheckpoint(message);
@@ -267,14 +264,13 @@ Ephemeris<Frame>::Ephemeris(
     unowned_bodies_.emplace_back(body.get());
     unowned_bodies_indices_.emplace(body.get(), i);
 
-    auto const inserted = bodies_to_trajectories_.emplace(
-                              body.get(),
-                              std::make_unique<ContinuousTrajectory<Frame>>(
-                                  fixed_step_parameters_.step_,
-                                  accuracy_parameters_.fitting_tolerance_));
-    CHECK(inserted.second);
-    ContinuousTrajectory<Frame>* const trajectory =
-        inserted.first->second.get();
+    auto const [it, inserted] = bodies_to_trajectories_.emplace(
+        body.get(),
+        std::make_unique<ContinuousTrajectory<Frame>>(
+            fixed_step_parameters_.step_,
+            accuracy_parameters_.fitting_tolerance_));
+    CHECK(inserted);
+    ContinuousTrajectory<Frame>* const trajectory = it->second.get();
     CHECK_OK(trajectory->Append(initial_time, degrees_of_freedom));
 
     if (body->is_oblate()) {
@@ -322,8 +318,7 @@ not_null<ContinuousTrajectory<Frame> const*> Ephemeris<Frame>::trajectory(
 
 template<typename Frame>
 bool Ephemeris<Frame>::empty() const {
-  for (auto const& pair : bodies_to_trajectories_) {
-    auto const& trajectory = pair.second;
+  for (auto const& [_, trajectory] : bodies_to_trajectories_) {
     if (trajectory->empty()) {
       return true;
     }
@@ -340,8 +335,7 @@ Instant Ephemeris<Frame>::t_min() const {
 template<typename Frame>
 Instant Ephemeris<Frame>::t_max() const {
   Instant t_max = bodies_to_trajectories_.begin()->second->t_max();
-  for (auto const& pair : bodies_to_trajectories_) {
-    auto const& trajectory = pair.second;
+  for (auto const& [_, trajectory] : bodies_to_trajectories_) {
     t_max = std::min(t_max, trajectory->t_max());
   }
   return t_max;
@@ -364,9 +358,8 @@ template<typename Frame>
 bool Ephemeris<Frame>::EventuallyForgetBefore(Instant const& t) {
   auto forget_before_t = [this, t]() {
     absl::MutexLock l(&lock_);
-    for (auto& pair : bodies_to_trajectories_) {
-      ContinuousTrajectory<Frame>& trajectory = *pair.second;
-      trajectory.ForgetBefore(t);
+    for (auto& [_, trajectory] : bodies_to_trajectories_) {
+      trajectory->ForgetBefore(t);
     }
     checkpointer_->ForgetBefore(t);
   };
@@ -432,12 +425,12 @@ Ephemeris<Frame>::NewInstance(
   };
 
   CHECK(!trajectories.empty());
-  Instant const trajectory_last_time = (*trajectories.begin())->last().time();
+  auto const trajectory_last_time = (*trajectories.begin())->back().time;
   problem.initial_state.time = DoublePrecision<Instant>(trajectory_last_time);
   for (auto const& trajectory : trajectories) {
-    auto const trajectory_last = trajectory->last();
-    auto const last_degrees_of_freedom = trajectory_last.degrees_of_freedom();
-    CHECK_EQ(trajectory_last.time(), trajectory_last_time);
+    auto const& trajectory_back = trajectory->back();
+    auto const last_degrees_of_freedom = trajectory_back.degrees_of_freedom;
+    CHECK_EQ(trajectory_back.time, trajectory_last_time);
     problem.initial_state.positions.emplace_back(
         last_degrees_of_freedom.position());
     problem.initial_state.velocities.emplace_back(
@@ -461,8 +454,7 @@ Status Ephemeris<Frame>::FlowWithAdaptiveStep(
     IntrinsicAcceleration intrinsic_acceleration,
     Instant const& t,
     AdaptiveStepParameters const& parameters,
-    std::int64_t const max_ephemeris_steps,
-    bool const last_point_only) {
+    std::int64_t const max_ephemeris_steps) {
   auto compute_acceleration = [this, &intrinsic_acceleration](
       Instant const& t,
       std::vector<Position<Frame>> const& positions,
@@ -483,8 +475,7 @@ Status Ephemeris<Frame>::FlowWithAdaptiveStep(
              trajectory,
              t,
              parameters,
-             max_ephemeris_steps,
-             last_point_only);
+             max_ephemeris_steps);
 }
 
 template<typename Frame>
@@ -493,8 +484,7 @@ Status Ephemeris<Frame>::FlowWithAdaptiveStep(
     GeneralizedIntrinsicAcceleration intrinsic_acceleration,
     Instant const& t,
     GeneralizedAdaptiveStepParameters const& parameters,
-    std::int64_t max_ephemeris_steps,
-    bool last_point_only) {
+    std::int64_t max_ephemeris_steps) {
   auto compute_acceleration =
       [this, &intrinsic_acceleration](
           Instant const& t,
@@ -518,8 +508,7 @@ Status Ephemeris<Frame>::FlowWithAdaptiveStep(
              trajectory,
              t,
              parameters,
-             max_ephemeris_steps,
-             last_point_only);
+             max_ephemeris_steps);
 }
 
 template<typename Frame>
@@ -550,7 +539,7 @@ Ephemeris<Frame>::ComputeGravitationalAccelerationOnMasslessBody(
     not_null<DiscreteTrajectory<Frame>*> const trajectory,
     Instant const& t) const {
   auto const it = trajectory->Find(t);
-  DegreesOfFreedom<Frame> const& degrees_of_freedom = it.degrees_of_freedom();
+  DegreesOfFreedom<Frame> const& degrees_of_freedom = it->degrees_of_freedom;
   return ComputeGravitationalAccelerationOnMasslessBody(
              degrees_of_freedom.position(), t);
 }
@@ -686,7 +675,7 @@ void Ephemeris<Frame>::ComputeApsides(not_null<MassiveBody const*> const body1,
           body1_trajectory->EvaluateDegreesOfFreedom(apsis_time);
       DegreesOfFreedom<Frame> const apsis2_degrees_of_freedom =
           body2_trajectory->EvaluateDegreesOfFreedom(apsis_time);
-      if (Sign(squared_distance_derivative).Negative()) {
+      if (Sign(squared_distance_derivative).is_negative()) {
         apoapsides1.Append(apsis_time, apsis1_degrees_of_freedom);
         apoapsides2.Append(apsis_time, apsis2_degrees_of_freedom);
       } else {
@@ -743,6 +732,7 @@ void Ephemeris<Frame>::WriteToMessage(
 }
 
 template<typename Frame>
+template<typename, typename>
 not_null<std::unique_ptr<Ephemeris<Frame>>> Ephemeris<Frame>::ReadFromMessage(
     serialization::Ephemeris const& message) {
   bool const is_pre_ἐρατοσθένης = !message.has_accuracy_parameters();
@@ -766,7 +756,7 @@ not_null<std::unique_ptr<Ephemeris<Frame>>> Ephemeris<Frame>::ReadFromMessage(
   // Dummy initial state and time.  We'll overwrite them later.
   std::vector<DegreesOfFreedom<Frame>> const initial_state(
       bodies.size(),
-      DegreesOfFreedom<Frame>(Position<Frame>(), Velocity<Frame>()));
+      DegreesOfFreedom<Frame>(Frame::origin, Frame::unmoving));
   Instant const initial_time;
   auto ephemeris = make_not_null_unique<Ephemeris<Frame>>(
                        std::move(bodies),
@@ -861,6 +851,19 @@ void Ephemeris<Frame>::WriteToCheckpoint(
 }
 
 template<typename Frame>
+Checkpointer<serialization::Ephemeris>::Reader
+Ephemeris<Frame>::MakeCheckpointerReader(Ephemeris* const ephemeris) {
+  if constexpr (base::is_serializable_v<Frame>) {
+    return [ephemeris](serialization::Ephemeris const& message) {
+      return ephemeris->ReadFromCheckpoint(message);
+    };
+  } else {
+    return nullptr;
+  }
+}
+
+template<typename Frame>
+template<typename, typename>
 bool Ephemeris<Frame>::ReadFromCheckpoint(
     serialization::Ephemeris const& message) {
   bool const has_checkpoint = message.has_instance();
@@ -887,10 +890,12 @@ bool Ephemeris<Frame>::ReadFromCheckpoint(
 
 template<typename Frame>
 void Ephemeris<Frame>::CreateCheckpointIfNeeded(Instant const& time) const {
-  lock_.AssertReaderHeld();
-  if (checkpointer_->CreateIfNeeded(time, max_time_between_checkpoints)) {
-    for (auto const& trajectory : trajectories_) {
-      trajectory->checkpointer().CreateUnconditionally(time);
+  if constexpr (base::is_serializable_v<Frame>) {
+    lock_.AssertReaderHeld();
+    if (checkpointer_->CreateIfNeeded(time, max_time_between_checkpoints)) {
+      for (auto const& trajectory : trajectories_) {
+        trajectory->checkpointer().CreateUnconditionally(time);
+      }
     }
   }
 }
@@ -947,8 +952,7 @@ template<typename Frame>
 Instant Ephemeris<Frame>::t_min_locked() const {
   lock_.AssertReaderHeld();
   Instant t_min = bodies_to_trajectories_.begin()->second->t_min();
-  for (auto const& pair : bodies_to_trajectories_) {
-    auto const& trajectory = pair.second;
+  for (auto const& [_, trajectory] : bodies_to_trajectories_) {
     t_min = std::max(t_min, trajectory->t_min());
   }
   return t_min;
@@ -1038,7 +1042,7 @@ ComputeGravitationalAccelerationByMassiveBodyOnMasslessBodies(
   auto const& trajectory1 = *trajectories_[b1];
   Position<Frame> const position1 = trajectory1.EvaluatePosition(t);
   Length const body1_collision_radius =
-      mean_radius_tolerance * body1.mean_radius();
+      min_radius_tolerance * body1.min_radius();
   Error error = Error::OK;
 
   for (std::size_t b2 = 0; b2 < positions.size(); ++b2) {
@@ -1158,9 +1162,8 @@ Status Ephemeris<Frame>::FlowODEWithAdaptiveStep(
     not_null<DiscreteTrajectory<Frame>*> trajectory,
     Instant const& t,
     ODEAdaptiveStepParameters<ODE> const& parameters,
-    std::int64_t max_ephemeris_steps,
-    bool last_point_only) {
-  Instant const& trajectory_last_time = trajectory->last().time();
+    std::int64_t max_ephemeris_steps) {
+  Instant const& trajectory_last_time = trajectory->back().time;
   if (trajectory_last_time == t) {
     return Status::OK;
   }
@@ -1181,11 +1184,11 @@ Status Ephemeris<Frame>::FlowODEWithAdaptiveStep(
   IntegrationProblem<ODE> problem;
   problem.equation.compute_acceleration = std::move(compute_acceleration);
 
-  auto const trajectory_last = trajectory->last();
-  auto const last_degrees_of_freedom = trajectory_last.degrees_of_freedom();
+  auto const trajectory_back = trajectory->back();
+  auto const last_degrees_of_freedom = trajectory_back.degrees_of_freedom;
   problem.initial_state = {{last_degrees_of_freedom.position()},
                            {last_degrees_of_freedom.velocity()},
-                           trajectory_last.time()};
+                           trajectory_back.time};
 
   typename AdaptiveStepSizeIntegrator<ODE>::Parameters const
       integrator_parameters(
@@ -1203,15 +1206,8 @@ Status Ephemeris<Frame>::FlowODEWithAdaptiveStep(
                 _1, _2);
 
   typename AdaptiveStepSizeIntegrator<ODE>::AppendState append_state;
-  typename ODE::SystemState last_state;
-  if (last_point_only) {
-    append_state = [&last_state](typename ODE::SystemState const& state) {
-      last_state = state;
-    };
-  } else {
-    append_state = std::bind(
-        &Ephemeris::AppendMasslessBodiesState, _1, std::cref(trajectories));
-  }
+  append_state = std::bind(
+      &Ephemeris::AppendMasslessBodiesState, _1, std::cref(trajectories));
 
   auto const instance =
       parameters.integrator_->NewInstance(problem,
@@ -1226,10 +1222,6 @@ Status Ephemeris<Frame>::FlowODEWithAdaptiveStep(
   // is used) should not cause the vessel to be deleted.
   if (status.error() == Error::OUT_OF_RANGE) {
     status = Status::OK;
-  }
-
-  if (last_point_only) {
-    AppendMasslessBodiesState(last_state, trajectories);
   }
 
   // TODO(egg): when we have events in trajectories, we should add a singularity

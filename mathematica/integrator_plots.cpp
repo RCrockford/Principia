@@ -56,6 +56,7 @@ using base::OFStream;
 using base::Status;
 using geometry::BarycentreCalculator;
 using geometry::Displacement;
+using geometry::Inertial;
 using geometry::InnerProduct;
 using geometry::Instant;
 using geometry::Velocity;
@@ -368,9 +369,7 @@ void GenerateKeplerProblemWorkErrorGraphs(double const eccentricity) {
   MassiveBody b1(μ);
   MasslessBody b2;
 
-  using World = geometry::Frame<serialization::Frame::TestTag,
-                                serialization::Frame::TEST,
-                                /*frame_is_inertial=*/true>;
+  using World = geometry::Frame<enum class WorldTag, Inertial>;
   KeplerianElements<World> elements;
   elements.semimajor_axis = 1 * Metre;
   elements.eccentricity = eccentricity;

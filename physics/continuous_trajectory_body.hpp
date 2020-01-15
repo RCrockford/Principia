@@ -40,15 +40,24 @@ int const max_degree_age = 100;
 int const divisions = 8;
 
 template<typename Frame>
+Checkpointer<serialization::ContinuousTrajectory>::Reader
+MakeCheckpointerReader(ContinuousTrajectory<Frame>* const trajectory) {
+  if constexpr (base::is_serializable_v<Frame>) {
+    return [trajectory](serialization::ContinuousTrajectory const& message) {
+      return trajectory->ReadFromCheckpoint(message);
+    };
+  } else {
+    return nullptr;
+  }
+}
+
+template<typename Frame>
 ContinuousTrajectory<Frame>::ContinuousTrajectory(Time const& step,
                                                   Length const& tolerance)
     : step_(step),
       tolerance_(tolerance),
       checkpointer_(
-          /*reader=*/
-          [this](serialization::ContinuousTrajectory const& message) {
-            return ReadFromCheckpoint(message);
-          },
+          /*reader=*/MakeCheckpointerReader(this),
           /*writer=*/
           [this](not_null<serialization::ContinuousTrajectory*> const message) {
             WriteToCheckpoint(message);
@@ -108,8 +117,7 @@ Status ContinuousTrajectory<Frame>::Append(
     q.clear();
     v.clear();
 
-    for (auto const& pair : last_points_) {
-      DegreesOfFreedom<Frame> const& degrees_of_freedom = pair.second;
+    for (auto const& [_, degrees_of_freedom] : last_points_) {
       q.push_back(degrees_of_freedom.position() - Frame::origin);
       v.push_back(degrees_of_freedom.velocity());
     }
@@ -228,6 +236,7 @@ void ContinuousTrajectory<Frame>::WriteToMessage(
 }
 
 template<typename Frame>
+template<typename, typename>
 not_null<std::unique_ptr<ContinuousTrajectory<Frame>>>
 ContinuousTrajectory<Frame>::ReadFromMessage(
       serialization::ContinuousTrajectory const& message) {
@@ -300,9 +309,7 @@ void ContinuousTrajectory<Frame>::WriteToCheckpoint(
   message->set_is_unstable(is_unstable_);
   message->set_degree(degree_);
   message->set_degree_age(degree_age_);
-  for (auto const& pair : last_points_) {
-    Instant const& instant = pair.first;
-    DegreesOfFreedom<Frame> const& degrees_of_freedom = pair.second;
+  for (auto const& [instant, degrees_of_freedom] : last_points_) {
     not_null<serialization::ContinuousTrajectory::
                  InstantaneousDegreesOfFreedom*> const
         instantaneous_degrees_of_freedom = message->add_last_point();
@@ -313,6 +320,7 @@ void ContinuousTrajectory<Frame>::WriteToCheckpoint(
 }
 
 template<typename Frame>
+template<typename, typename>
 bool ContinuousTrajectory<Frame>::ReadFromCheckpoint(
     serialization::ContinuousTrajectory const& message) {
   bool const has_checkpoint = message.has_adjusted_tolerance() &&
@@ -347,7 +355,9 @@ ContinuousTrajectory<Frame>::InstantPolynomialPair::InstantPolynomialPair(
 
 template<typename Frame>
 Instant ContinuousTrajectory<Frame>::t_min_locked() const {
+#if defined(_DEBUG)
   lock_.AssertReaderHeld();
+#endif
   if (polynomials_.empty()) {
     return astronomy::InfiniteFuture;
   }
@@ -356,7 +366,9 @@ Instant ContinuousTrajectory<Frame>::t_min_locked() const {
 
 template<typename Frame>
 Instant ContinuousTrajectory<Frame>::t_max_locked() const {
+#if defined(_DEBUG)
   lock_.AssertReaderHeld();
+#endif
   if (polynomials_.empty()) {
     return astronomy::InfinitePast;
   }
@@ -486,7 +498,9 @@ template<typename Frame>
 typename ContinuousTrajectory<Frame>::InstantPolynomialPairs::const_iterator
 ContinuousTrajectory<Frame>::FindPolynomialForInstant(
     Instant const& time) const {
+#if defined(_DEBUG)
   lock_.AssertReaderHeld();
+#endif
   // This returns the first polynomial |p| such that |time <= p.t_max|.
   {
     auto const begin = polynomials_.begin();

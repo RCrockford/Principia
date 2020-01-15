@@ -13,7 +13,9 @@
 #include "integrators/integrators.hpp"
 #include "physics/discrete_trajectory.hpp"
 #include "physics/ephemeris.hpp"
+#include "physics/inertia_tensor.hpp"
 #include "physics/massless_body.hpp"
+#include "physics/rigid_motion.hpp"
 #include "ksp_plugin/frames.hpp"
 #include "ksp_plugin/identification.hpp"
 #include "serialization/ksp_plugin.pb.h"
@@ -27,17 +29,36 @@ namespace internal_pile_up {
 
 using base::not_null;
 using base::Status;
+using geometry::Bivector;
 using geometry::Frame;
+using geometry::Handedness;
 using geometry::Instant;
+using geometry::NonInertial;
 using geometry::Vector;
 using integrators::Integrator;
 using physics::DiscreteTrajectory;
 using physics::DegreesOfFreedom;
 using physics::Ephemeris;
+using physics::InertiaTensor;
 using physics::MasslessBody;
 using physics::RelativeDegreesOfFreedom;
+using physics::RigidMotion;
+using quantities::AngularMomentum;
 using quantities::Force;
 using quantities::Mass;
+
+// The origin of |NonRotatingPileUp| is the centre of mass of the pile up.
+// Its axes are those of |Barycentric|. It is used to describe the rotational
+// motion of the pile up (being a nonrotating frame) without running into
+// numerical issues from having a faraway origin like that of |Barycentric|.
+// This also makes the quantities more conceptually convenient: the angular
+// momentum and inertia tensor with respect to the centre of mass are easier to
+// reason with than the same quantities with respect to the barycentre of the
+// solar system.
+using NonRotatingPileUp = Frame<serialization::Frame::PluginTag,
+                                NonInertial,
+                                Handedness::Right,
+                                serialization::Frame::NON_ROTATING_PILE_UP>;
 
 // A |PileUp| handles a connected component of the graph of |Parts| under
 // physical contact.  It advances the history and psychohistory of its component
@@ -59,23 +80,23 @@ class PileUp {
   PileUp(PileUp&& pile_up) = default;
   PileUp& operator=(PileUp&& pile_up) = default;
 
-  void set_mass(Mass const& mass);
-  void set_intrinsic_force(Vector<Force, Barycentric> const& intrinsic_force);
-
   std::list<not_null<Part*>> const& parts() const;
 
-  // Set the |degrees_of_freedom| for the given |part|.  These degrees of
-  // freedom are *apparent* in the sense that they were reported by the game but
-  // we know better since we are doing science.
-  void SetPartApparentDegreesOfFreedom(
+  // Set the rigid motion for the given |part|.  This rigid motion is *apparent*
+  // in the sense that it was reported by the game but we know better since we
+  // are doing science.
+  void SetPartApparentRigidMotion(
       not_null<Part*> part,
-      DegreesOfFreedom<ApparentBubble> const& degrees_of_freedom);
+      RigidMotion<RigidPart, ApparentBubble> const& rigid_motion);
 
   // Deforms the pile-up, advances the time, and nudges the parts, in sequence.
   // Does nothing if the psychohistory is already advanced beyond |t|.  Several
   // executions of this method may happen concurrently on multiple threads, but
   // not concurrently with any other method of this class.
   Status DeformAndAdvanceTime(Instant const& t);
+
+  // Recomputes the state of motion of the pile-up based on that of its parts.
+  void RecomputeFromParts();
 
   // We'd like to return |not_null<std::shared_ptr<PileUp> const&|, but the
   // compiler gets confused when defining the corresponding lambda, and thinks
@@ -110,7 +131,7 @@ class PileUp {
          not_null<Ephemeris<Barycentric>*> ephemeris,
          std::function<void()> deletion_callback);
 
-  // Update the degrees of freedom (in |RigidPileUp|) of all the parts by
+  // Update the degrees of freedom (in |NonRotatingPileUp|) of all the parts by
   // translating the *apparent* degrees of freedom so that their centre of mass
   // matches that computed by integration.
   // |SetPartApparentDegreesOfFreedom| must have been called for each part in
@@ -129,12 +150,17 @@ class PileUp {
 
   // Adjusts the degrees of freedom of all parts in this pile up based on the
   // degrees of freedom of the pile-up computed by |AdvanceTime| and on the
-  // |RigidPileUp| degrees of freedom of the parts, as set by
+  // |NonRotatingPileUp| degrees of freedom of the parts, as set by
   // |DeformPileUpIfNeeded|.
   void NudgeParts() const;
 
   template<AppendToPartTrajectory append_to_part_trajectory>
   void AppendToPart(DiscreteTrajectory<Barycentric>::Iterator it) const;
+
+  // Computes the angular momentum, inertia tensor and intrinsic force from the
+  // list of parts.  Returns the barycentre of the parts.
+  DegreesOfFreedom<Barycentric> RecomputeFromParts(
+      std::list<not_null<Part*>> const& parts);
 
   // Wrapped in a |unique_ptr| to be moveable.
   not_null<std::unique_ptr<absl::Mutex>> lock_;
@@ -144,9 +170,9 @@ class PileUp {
   Ephemeris<Barycentric>::AdaptiveStepParameters adaptive_step_parameters_;
   Ephemeris<Barycentric>::FixedStepParameters fixed_step_parameters_;
 
-  // An optimization: the sum of the masses and intrinsic forces of the
-  // |parts_|, computed by the union-find.
-  Mass mass_;
+  // Recomputed by the parts subset on every change.  Not serialized.
+  Bivector<AngularMomentum, NonRotatingPileUp> angular_momentum_;
+  InertiaTensor<NonRotatingPileUp> inertia_tensor_;
   Vector<Force, Barycentric> intrinsic_force_;
 
   // The |history_| is the past trajectory of the pile-up.  It is normally
@@ -173,19 +199,10 @@ class PileUp {
       Ephemeris<Barycentric>::NewtonianMotionEquation>::Instance>
       fixed_instance_;
 
-  // The |PileUp| is seen as a (currently non-rotating) rigid body; the degrees
-  // of freedom of the parts in the frame of that body can be set, however their
-  // motion is not integrated; this is simply applied as an offset from the
-  // rigid body motion of the |PileUp|.
-  // The origin of |RigidPileUp| is the centre of mass of the pile up.
-  // Its axes are those of Barycentric for now; eventually we will probably want
-  // to use the inertia ellipsoid.
-  using RigidPileUp = Frame<serialization::Frame::PluginTag,
-                            serialization::Frame::RIGID_PILE_UP,
-                            /*frame_is_inertial=*/false>;
-
-  PartTo<DegreesOfFreedom<RigidPileUp>> actual_part_degrees_of_freedom_;
-  PartTo<DegreesOfFreedom<ApparentBubble>> apparent_part_degrees_of_freedom_;
+  // TODO(phl): Use |RigidPileUp|, a reference frame whose axes are the
+  // principal axes of the pile up.
+  PartTo<RigidMotion<RigidPart, NonRotatingPileUp>> actual_part_rigid_motion_;
+  PartTo<RigidMotion<RigidPart, ApparentBubble>> apparent_part_rigid_motion_;
 
   // Called in the destructor.
   std::function<void()> deletion_callback_;

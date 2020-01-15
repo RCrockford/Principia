@@ -19,6 +19,8 @@ namespace internal_massive_body {
 
 using quantities::constants::GravitationalConstant;
 using geometry::Frame;
+using geometry::Handedness;
+using geometry::Inertial;
 using geometry::ReadFrameFromMessage;
 
 inline MassiveBody::Parameters::Parameters(
@@ -67,7 +69,15 @@ inline Mass const& MassiveBody::mass() const {
   return parameters_.mass_;
 }
 
+inline Length MassiveBody::min_radius() const {
+  return Length();
+}
+
 inline Length MassiveBody::mean_radius() const {
+  return Length();
+}
+
+inline Length MassiveBody::max_radius() const {
   return Length();
 }
 
@@ -98,12 +108,14 @@ inline not_null<std::unique_ptr<MassiveBody>> MassiveBody::ReadFromMessage(
 }
 
 // This macro is a bit ugly, but trust me, it's better than the alternatives.
-#define ROTATING_BODY_TAG_VALUE_CASE(value)                                    \
-  case serialization::Frame::value:                                            \
-    CHECK_NOTNULL(rotating_body_extension);                                    \
-    return RotatingBody<                                                       \
-                Frame<Tag, serialization::Frame::value, true>>::               \
-                ReadFromMessage(*rotating_body_extension, parameters)
+#define ROTATING_BODY_TAG_VALUE_CASE(value)                   \
+  case serialization::Frame::value:                           \
+    CHECK_NOTNULL(rotating_body_extension);                   \
+    return RotatingBody<Frame<Tag,                            \
+                              Inertial,                       \
+                              Handedness::Right,              \
+                              serialization::Frame::value>>:: \
+        ReadFromMessage(*rotating_body_extension, parameters)
 
 inline not_null<std::unique_ptr<MassiveBody>> MassiveBody::ReadFromMessage(
     serialization::MassiveBody const& message) {
@@ -133,6 +145,7 @@ inline not_null<std::unique_ptr<MassiveBody>> MassiveBody::ReadFromMessage(
       if (enum_descriptor == google::protobuf::GetEnumDescriptor<Tag>()) {
         switch (static_cast<Tag>(enum_value_descriptor->number())) {
           ROTATING_BODY_TAG_VALUE_CASE(FRENET);
+          ROTATING_BODY_TAG_VALUE_CASE(PRINCIPAL_AXES);
         }
       }
     }
@@ -146,11 +159,13 @@ inline not_null<std::unique_ptr<MassiveBody>> MassiveBody::ReadFromMessage(
           ROTATING_BODY_TAG_VALUE_CASE(BARYCENTRIC);
           ROTATING_BODY_TAG_VALUE_CASE(BODY_WORLD);
           ROTATING_BODY_TAG_VALUE_CASE(CAMERA);
+          ROTATING_BODY_TAG_VALUE_CASE(CAMERA_REFERENCE);
           ROTATING_BODY_TAG_VALUE_CASE(CELESTIAL_SPHERE);
           ROTATING_BODY_TAG_VALUE_CASE(MAIN_BODY_CENTRED);
           ROTATING_BODY_TAG_VALUE_CASE(NAVBALL);
           ROTATING_BODY_TAG_VALUE_CASE(NAVIGATION);
-          ROTATING_BODY_TAG_VALUE_CASE(RIGID_PILE_UP);
+          ROTATING_BODY_TAG_VALUE_CASE(NON_ROTATING_PILE_UP);
+          ROTATING_BODY_TAG_VALUE_CASE(RIGID_PART);
           ROTATING_BODY_TAG_VALUE_CASE(WORLD);
           ROTATING_BODY_TAG_VALUE_CASE(WORLD_SUN);
         }

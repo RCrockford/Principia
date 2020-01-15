@@ -32,9 +32,11 @@ namespace geometry {
 class PairTest : public testing::Test {
  protected:
   using World = Frame<serialization::Frame::TestTag,
-                      serialization::Frame::TEST, true>;
+                      Inertial,
+                      Handedness::Right,
+                      serialization::Frame::TEST>;
 
-  struct Universe;
+  using Universe = Frame<enum class UniverseTag>;
 
   PairTest()
       : p1_(P1() + V1({4 * SIUnit<Action>(),

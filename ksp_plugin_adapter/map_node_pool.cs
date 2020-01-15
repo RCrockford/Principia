@@ -5,10 +5,15 @@ namespace principia {
 namespace ksp_plugin_adapter {
 
 internal class MapNodePool {
+  // We render at most 64 markers of one type and one provenance (e.g., at
+  // most 64 perilunes for the prediction of the active vessel).  This is
+  // more than is readable, and keeps the size of the map node pool under
+  // control.
+  public const int MaxRenderedNodes = 64;
 
   public enum NodeSource {
-    PREDICTION,
-    FLIGHT_PLAN,
+    Prediction,
+    FlightPlan,
   }
 
   public MapNodePool() {
@@ -44,10 +49,6 @@ internal class MapNodePool {
                             MapObject.ObjectType type,
                             NodeSource source,
                             ReferenceFrameSelector reference_frame) {
-    // We render at most 64 markers of one type and one provenance (e.g., at
-    // most 64 perilunes for the prediction of the active vessel).  This is
-    // more than is readable, and keeps the size of the map node pool under
-    // control.
     MapObject associated_map_object;
     UnityEngine.Color colour;
     switch (type) {
@@ -97,7 +98,7 @@ internal class MapNodePool {
     }
     colour.a = 1;
 
-    for (int i = 0; i < 64 && !apsis_iterator.IteratorAtEnd();
+    for (int i = 0; i < MaxRenderedNodes && !apsis_iterator.IteratorAtEnd();
          ++i, apsis_iterator.IteratorIncrement()) {
       QP apsis = apsis_iterator.IteratorGetDiscreteTrajectoryQP();
       MapNodeProperties node_properties = new MapNodeProperties {
@@ -166,11 +167,11 @@ internal class MapNodePool {
         (KSP.UI.Screens.Mapview.MapNode node,
          Mouse.Buttons buttons) => {
           if (buttons == Mouse.Buttons.Left) {
-            var properties = properties_[node];
+            MapNodeProperties properties = properties_[node];
             if (PlanetariumCamera.fetch.target !=
-                properties_[node].associated_map_object) {
+                properties.associated_map_object) {
               PlanetariumCamera.fetch.SetTarget(
-                  properties_[node].associated_map_object);
+                  properties.associated_map_object);
             }
           }
         };
@@ -202,10 +203,10 @@ internal class MapNodePool {
           var properties = properties_[node];
           string source;
           switch (properties.source) {
-            case NodeSource.FLIGHT_PLAN:
+            case NodeSource.FlightPlan:
               source = "Planned";
               break;
-            case NodeSource.PREDICTION:
+            case NodeSource.Prediction:
               source = "Predicted";
               break;
             default:
@@ -224,10 +225,8 @@ internal class MapNodePool {
               double speed = properties.velocity.magnitude;
               caption.Header =
                   $@"{source} {celestial.name} {apsis_name} :\n{
-                     celestial.GetAltitude(position):N0} m".ToString(
-                      Culture.culture);
-              caption.captionLine2 =
-                  $"{speed:N0} m/s".ToString(Culture.culture);
+                     celestial.GetAltitude(position).FormatN(0)} m";
+              caption.captionLine2 = $"{speed.FormatN(0)} m/s";
               break;
             }
             case MapObject.ObjectType.AscendingNode:
@@ -239,8 +238,7 @@ internal class MapNodePool {
               string plane =
                   properties.reference_frame.ReferencePlaneDescription();
               caption.Header = $"{source} {node_name} :\n{plane}";
-              caption.captionLine2 =
-                  $"{properties.velocity.z:N0} m/s".ToString(Culture.culture);
+              caption.captionLine2 = $"{properties.velocity.z.FormatN(0)} m/s";
               break;
             }
             case MapObject.ObjectType.ApproachIntersect: {
@@ -249,10 +247,8 @@ internal class MapNodePool {
                                    properties.world_position).magnitude;
               double speed = properties.velocity.magnitude;
               caption.Header =
-                  $@"{source} Target Approach : {separation:N0} m".ToString(
-                      Culture.culture);
-              caption.captionLine2 =
-                  $"{speed:N0} m/s".ToString(Culture.culture);
+                  $@"{source} Target Approach : {separation.FormatN(0)} m";
+              caption.captionLine2 = $"{speed.FormatN(0)} m/s";
               break;
             }
             case MapObject.ObjectType.PatchTransition: {

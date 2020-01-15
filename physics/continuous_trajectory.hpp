@@ -91,6 +91,8 @@ class ContinuousTrajectory : public Trajectory<Frame> {
 
   void WriteToMessage(not_null<serialization::ContinuousTrajectory*> message)
       const EXCLUDES(lock_);
+  template<typename F = Frame,
+           typename = std::enable_if_t<base::is_serializable_v<F>>>
   static not_null<std::unique_ptr<ContinuousTrajectory>> ReadFromMessage(
       serialization::ContinuousTrajectory const& message);
 
@@ -100,6 +102,8 @@ class ContinuousTrajectory : public Trajectory<Frame> {
   Checkpointer<serialization::ContinuousTrajectory>& checkpointer();
   void WriteToCheckpoint(
       not_null<serialization::ContinuousTrajectory*> message);
+  template<typename F = Frame,
+           typename = std::enable_if_t<base::is_serializable_v<F>>>
   bool ReadFromCheckpoint(serialization::ContinuousTrajectory const& message);
 
  protected:
@@ -205,6 +209,4 @@ using internal_continuous_trajectory::ContinuousTrajectory;
 }  // namespace physics
 }  // namespace principia
 
-#if !PHYSICS_DLL_IMPORT
 #include "physics/continuous_trajectory_body.hpp"
-#endif

@@ -33,6 +33,7 @@
 #include "physics/ephemeris.hpp"
 #include "physics/frame_field.hpp"
 #include "physics/hierarchical_system.hpp"
+#include "physics/inertia_tensor.hpp"
 #include "physics/kepler_orbit.hpp"
 #include "physics/massive_body.hpp"
 #include "physics/rotating_body.hpp"
@@ -71,6 +72,7 @@ using physics::Ephemeris;
 using physics::FrameField;
 using physics::Frenet;
 using physics::HierarchicalSystem;
+using physics::InertiaTensor;
 using physics::MassiveBody;
 using physics::RelativeDegreesOfFreedom;
 using physics::RigidMotion;
@@ -201,11 +203,11 @@ class Plugin {
   virtual void InsertOrKeepLoadedPart(
       PartId part_id,
       std::string const& name,
-      Mass const& mass,
+      InertiaTensor<RigidPart> const& inertia_tensor,
       GUID const& vessel_guid,
       Index main_body_index,
       DegreesOfFreedom<World> const& main_body_degrees_of_freedom,
-      DegreesOfFreedom<World> const& part_degrees_of_freedom,
+      RigidMotion<RigidPart, World> const& part_rigid_motion,
       Time const& Δt);
 
   // Calls |increment_intrinsic_force| on the relevant part, which must be in a
@@ -233,11 +235,11 @@ class Plugin {
   // the list of |pile_ups_| according to the reported collisions.
   virtual void FreeVesselsAndPartsAndCollectPileUps(Time const& Δt);
 
-  // Calls |SetPartApparentDegreesOfFreedom| on the pile-up containing the
-  // relevant part.  This part must be in a loaded vessel.
-  virtual void SetPartApparentDegreesOfFreedom(
+  // Calls |SetPartApparentRigidMotion| on the pile-up containing the relevant
+  // part.  This part must be in a loaded vessel.
+  virtual void SetPartApparentRigidMotion(
       PartId part_id,
-      DegreesOfFreedom<World> const& degrees_of_freedom,
+      RigidMotion<RigidPart, World> const& rigid_motion,
       DegreesOfFreedom<World> const& main_body_degrees_of_freedom);
 
   // Returns the degrees of freedom of the given part in |World|, assuming that
@@ -333,6 +335,7 @@ class Plugin {
       DiscreteTrajectory<Barycentric>::Iterator const& begin,
       DiscreteTrajectory<Barycentric>::Iterator const& end,
       Position<World> const& sun_world_position,
+      int max_points,
       std::unique_ptr<DiscreteTrajectory<World>>& apoapsides,
       std::unique_ptr<DiscreteTrajectory<World>>& periapsides) const;
 
@@ -342,6 +345,7 @@ class Plugin {
       DiscreteTrajectory<Barycentric>::Iterator const& begin,
       DiscreteTrajectory<Barycentric>::Iterator const& end,
       Position<World> const& sun_world_position,
+      int max_points,
       std::unique_ptr<DiscreteTrajectory<World>>& closest_approaches) const;
 
   // Computes the nodes of the trajectory defined by |begin| and |end| with
@@ -350,6 +354,7 @@ class Plugin {
       DiscreteTrajectory<Barycentric>::Iterator const& begin,
       DiscreteTrajectory<Barycentric>::Iterator const& end,
       Position<World> const& sun_world_position,
+      int max_points,
       std::unique_ptr<DiscreteTrajectory<World>>& ascending,
       std::unique_ptr<DiscreteTrajectory<World>>& descending) const;
 
@@ -460,8 +465,8 @@ class Plugin {
   void AddPart(not_null<Vessel*> vessel,
                PartId part_id,
                std::string const& name,
-               Mass mass,
-               DegreesOfFreedom<Barycentric> const& degrees_of_freedom);
+               InertiaTensor<RigidPart> const& inertia_tensor,
+               RigidMotion<RigidPart, Barycentric> const& rigid_motion);
 
   // Whether |loaded_vessels_| contains |vessel|.
   bool is_loaded(not_null<Vessel*> vessel) const;

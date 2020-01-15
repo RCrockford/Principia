@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "astronomy/frames.hpp"
+#include "benchmark/benchmark.h"
 #include "base/not_null.hpp"
 #include "geometry/frame.hpp"
 #include "geometry/grassmann.hpp"
@@ -29,9 +30,6 @@
 #include "physics/massless_body.hpp"
 #include "physics/solar_system.hpp"
 #include "serialization/geometry.pb.h"
-
-// This must come last because apparently it redefines CDECL.
-#include "benchmark/benchmark.h"
 
 namespace principia {
 
@@ -66,8 +64,7 @@ namespace {
 const Length tolerance = 0.01 * Metre;
 }  // namespace
 
-using Rendering = Frame<serialization::Frame::TestTag,
-                        serialization::Frame::TEST, false>;
+using Rendering = Frame<enum class RenderingTag>;
 
 template<typename F, template<typename> class T>
 void FillLinearTrajectory(Position<F> const& initial,
@@ -98,17 +95,18 @@ ApplyDynamicFrame(
   // Compute the trajectory in the rendering frame.
   DiscreteTrajectory<Rendering> intermediate_trajectory;
   for (auto it = begin; it != end; ++it) {
+    auto const& [time, degrees_of_freedom] = *it;
     intermediate_trajectory.Append(
-        it.time(),
-        dynamic_frame->ToThisFrameAtTime(it.time())(it.degrees_of_freedom()));
+        time,
+        dynamic_frame->ToThisFrameAtTime(time)(degrees_of_freedom));
   }
 
   // Render the trajectory at current time in |Rendering|.
-  Instant const& current_time = intermediate_trajectory.last().time();
+  Instant const& current_time = intermediate_trajectory.back().time;
   DiscreteTrajectory<Rendering>::Iterator initial_it =
-      intermediate_trajectory.Begin();
+      intermediate_trajectory.begin();
   DiscreteTrajectory<Rendering>::Iterator const intermediate_end =
-      intermediate_trajectory.End();
+      intermediate_trajectory.end();
   auto to_rendering_frame_at_current_time =
       dynamic_frame->FromThisFrameAtTime(current_time).rigid_transformation();
   if (initial_it != intermediate_end) {
@@ -116,9 +114,9 @@ ApplyDynamicFrame(
          ++final_it, final_it != intermediate_end;
          initial_it = final_it) {
       result.emplace_back(to_rendering_frame_at_current_time(
-                              initial_it.degrees_of_freedom().position()),
+                              initial_it->degrees_of_freedom.position()),
                           to_rendering_frame_at_current_time(
-                              final_it.degrees_of_freedom().position()));
+                              final_it->degrees_of_freedom.position()));
     }
   }
   return result;
@@ -153,8 +151,8 @@ void BM_BodyCentredNonRotatingDynamicFrame(benchmark::State& state) {
                                       0 * AstronomicalUnit});
   Velocity<Barycentric> probe_velocity =
       Velocity<Barycentric>({0 * SIUnit<Speed>(),
-                                  100 * Kilo(Metre) / Second,
-                                  0 * SIUnit<Speed>()});
+                             100 * Kilo(Metre) / Second,
+                             0 * SIUnit<Speed>()});
   DiscreteTrajectory<Barycentric> probe_trajectory;
   FillLinearTrajectory<Barycentric, DiscreteTrajectory>(probe_initial_position,
                                                         probe_velocity,
@@ -168,8 +166,8 @@ void BM_BodyCentredNonRotatingDynamicFrame(benchmark::State& state) {
   while (state.KeepRunning()) {
     auto v = ApplyDynamicFrame(&probe,
                                &dynamic_frame,
-                               probe_trajectory.Begin(),
-                               probe_trajectory.End());
+                               probe_trajectory.begin(),
+                               probe_trajectory.end());
   }
 }
 
@@ -218,8 +216,8 @@ void BM_BarycentricRotatingDynamicFrame(benchmark::State& state) {
   while (state.KeepRunning()) {
     auto v = ApplyDynamicFrame(&probe,
                                &dynamic_frame,
-                               probe_trajectory.Begin(),
-                               probe_trajectory.End());
+                               probe_trajectory.begin(),
+                               probe_trajectory.end());
   }
 }
 

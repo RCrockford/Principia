@@ -21,6 +21,7 @@
 #include "serialization/geometry.pb.h"
 #include "serialization/physics.pb.h"
 #include "testing_utilities/almost_equals.hpp"
+#include "testing_utilities/approximate_quantity.hpp"
 #include "testing_utilities/is_near.hpp"
 #include "testing_utilities/matchers.hpp"
 #include "testing_utilities/numerics.hpp"
@@ -31,6 +32,8 @@ namespace internal_continuous_trajectory {
 
 using geometry::Displacement;
 using geometry::Frame;
+using geometry::Handedness;
+using geometry::Inertial;
 using geometry::Velocity;
 using numerics::Polynomial;
 using numerics::PolynomialInMonomialBasis;
@@ -52,6 +55,7 @@ using testing_utilities::AbsoluteError;
 using testing_utilities::AlmostEquals;
 using testing_utilities::EqualsProto;
 using testing_utilities::IsNear;
+using testing_utilities::operator""_⑴;
 using ::testing::Sequence;
 using ::testing::SetArgReferee;
 using ::testing::_;
@@ -150,7 +154,9 @@ void TestableContinuousTrajectory<Frame>::ResetBestNewhallApproximation() {
 class ContinuousTrajectoryTest : public testing::Test {
  protected:
   using World = Frame<serialization::Frame::TestTag,
-                      serialization::Frame::TEST1, true>;
+                      Inertial,
+                      Handedness::Right,
+                      serialization::Frame::TEST>;
 
   void FillTrajectory(
       int const number_of_steps,
@@ -184,8 +190,7 @@ TEST_F(ContinuousTrajectoryTest, BestNewhallApproximation) {
                               step,
                               tolerance);
   trajectory->Append(Instant(),
-                     DegreesOfFreedom<World>(Position<World>(),
-                                             Velocity<World>()));
+                     DegreesOfFreedom<World>(World::origin, World::unmoving));
 
   // A case where the errors smoothly decrease.
   {
@@ -508,8 +513,8 @@ TEST_F(ContinuousTrajectoryTest, Io) {
         std::max(max_velocity_absolute_error,
                  AbsoluteError(expected_velocity, actual_velocity));
   }
-  EXPECT_THAT(max_position_absolute_error, IsNear(31 * Milli(Metre)));
-  EXPECT_THAT(max_velocity_absolute_error, IsNear(1.45e-5 * Metre / Second));
+  EXPECT_THAT(max_position_absolute_error, IsNear(31_⑴ * Milli(Metre)));
+  EXPECT_THAT(max_velocity_absolute_error, IsNear(1.40e-5_⑴ * Metre / Second));
 
   trajectory->ForgetBefore(trajectory->t_min() - step);
 
@@ -535,8 +540,8 @@ TEST_F(ContinuousTrajectoryTest, Io) {
         std::max(max_velocity_absolute_error,
                  AbsoluteError(expected_velocity, actual_velocity));
   }
-  EXPECT_THAT(max_position_absolute_error, IsNear(31 * Milli(Metre)));
-  EXPECT_THAT(max_velocity_absolute_error, IsNear(1.45e-5 * Metre / Second));
+  EXPECT_THAT(max_position_absolute_error, IsNear(31_⑴ * Milli(Metre)));
+  EXPECT_THAT(max_velocity_absolute_error, IsNear(1.43e-5_⑴ * Metre / Second));
 }
 
 TEST_F(ContinuousTrajectoryTest, Continuity) {

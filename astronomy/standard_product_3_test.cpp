@@ -364,20 +364,20 @@ TEST_P(StandardProduct3DynamicsTest, PerturbedKeplerian) {
   for (auto const& satellite : sp3.satellites()) {
     for (not_null<DiscreteTrajectory<ITRS> const*> const arc :
          sp3.orbit(satellite)) {
-      auto it = arc->Begin();
+      auto it = arc->begin();
       for (int i = 0;; ++i) {
         DiscreteTrajectory<ICRS> integrated_arc;
-        ephemeris_->Prolong(it.time());
+        ephemeris_->Prolong(it->time);
         integrated_arc.Append(
-            it.time(),
-            itrs_.FromThisFrameAtTime(it.time())(it.degrees_of_freedom()));
-        if (++it == arc->End()) {
+            it->time,
+            itrs_.FromThisFrameAtTime(it->time)(it->degrees_of_freedom));
+        if (++it == arc->end()) {
           break;
         }
       ephemeris_->FlowWithAdaptiveStep(
             &integrated_arc,
             Ephemeris<ICRS>::NoIntrinsicAcceleration,
-            it.time(),
+            it->time,
             Ephemeris<ICRS>::AdaptiveStepParameters(
                 EmbeddedExplicitRungeKuttaNyströmIntegrator<
                     DormandالمكاوىPrince1986RKN434FM,
@@ -385,12 +385,11 @@ TEST_P(StandardProduct3DynamicsTest, PerturbedKeplerian) {
                 std::numeric_limits<std::int64_t>::max(),
                 /*length_integration_tolerance=*/1 * Milli(Metre),
                 /*speed_integration_tolerance=*/1 * Milli(Metre) / Second),
-            /*max_ephemeris_steps=*/std::numeric_limits<std::int64_t>::max(),
-            /*last_point_only=*/true);
+            /*max_ephemeris_steps=*/std::numeric_limits<std::int64_t>::max());
       DegreesOfFreedom<ICRS> actual =
-          integrated_arc.last().degrees_of_freedom();
+          integrated_arc.back().degrees_of_freedom;
       DegreesOfFreedom<ICRS> expected =
-          itrs_.FromThisFrameAtTime(it.time())(it.degrees_of_freedom());
+          itrs_.FromThisFrameAtTime(it->time)(it->degrees_of_freedom);
       EXPECT_THAT(AbsoluteError(expected.position(), actual.position()),
                   Lt(25 * Metre))
           << "orbit of satellite " << satellite << " flowing from point " << i;

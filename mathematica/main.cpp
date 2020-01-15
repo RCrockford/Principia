@@ -25,7 +25,8 @@ using ::principia::physics::Ephemeris;
 using ::principia::physics::SolarSystem;
 using ::principia::quantities::Time;
 
-int main(int argc, char const* argv[]) {
+int __cdecl main(int argc, char const* argv[]) {
+  google::SetLogFilenameExtension(".log");
   google::InitGoogleLogging(argv[0]);
   google::LogToStderr();
   if (argc == 1 || std::string(argv[1]) == "integrator_plots") {

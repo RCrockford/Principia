@@ -2,18 +2,22 @@
 #pragma once
 
 #include <functional>
+#include <type_traits>
 
+#include "base/not_null.hpp"
 #include "geometry/affine_map.hpp"
 #include "geometry/named_quantities.hpp"
 #include "geometry/orthogonal_map.hpp"
 #include "geometry/rotation.hpp"
 #include "physics/degrees_of_freedom.hpp"
 #include "quantities/quantities.hpp"
+#include "serialization/physics.pb.h"
 
 namespace principia {
 namespace physics {
 namespace internal_rigid_motion {
 
+using base::not_null;
 using geometry::AffineMap;
 using geometry::AngularVelocity;
 using geometry::Bivector;
@@ -40,6 +44,14 @@ class RigidMotion final {
       AngularVelocity<FromFrame> const& angular_velocity_of_to_frame,
       Velocity<FromFrame> const& velocity_of_to_frame_origin);
 
+  template<typename F = FromFrame,
+           typename T = ToFrame,
+           typename = std::enable_if_t<!std::is_same_v<F, T>>>
+  RigidMotion(
+      RigidTransformation<FromFrame, ToFrame> const& rigid_transformation,
+      AngularVelocity<ToFrame> const& angular_velocity_of_from_frame,
+      Velocity<ToFrame> const& velocity_of_from_frame_origin);
+
   RigidTransformation<FromFrame, ToFrame> const& rigid_transformation() const;
   // Returns |rigid_transformation().linear_map()|.
   OrthogonalMap<FromFrame, ToFrame> const& orthogonal_map() const;
@@ -50,6 +62,19 @@ class RigidMotion final {
       DegreesOfFreedom<FromFrame> const& degrees_of_freedom) const;
 
   RigidMotion<ToFrame, FromFrame> Inverse() const;
+
+  template<typename F = FromFrame,
+           typename T = ToFrame,
+           typename = std::enable_if_t<std::is_same_v<F, T>>>
+  static RigidMotion Identity();
+
+  // A factory that construct a non-rotating motion using the given degrees of
+  // freedom.  Useful e.g. for save compatibility.
+  static RigidMotion MakeNonRotatingMotion(
+      DegreesOfFreedom<ToFrame> const& degrees_of_freedom_of_from_frame_origin);
+
+  void WriteToMessage(not_null<serialization::RigidMotion*> message) const;
+  static RigidMotion ReadFromMessage(serialization::RigidMotion const& message);
 
  private:
   RigidTransformation<FromFrame, ToFrame> rigid_transformation_;
@@ -96,6 +121,15 @@ class AcceleratedRigidMotion final {
   // d/dt rigid_motion_.velocity_of_to_frame_origin().
   Vector<Acceleration, FromFrame> const acceleration_of_to_frame_origin_;
 };
+
+template<typename FromFrame, typename ToFrame>
+std::ostream& operator<<(std::ostream& out,
+                         RigidMotion<FromFrame, ToFrame> const& rigid_motion);
+
+template<typename FromFrame, typename ToFrame>
+std::ostream& operator<<(
+    std::ostream& out,
+    AcceleratedRigidMotion<FromFrame, ToFrame> const& accelerated_rigid_motion);
 
 }  // namespace internal_rigid_motion
 

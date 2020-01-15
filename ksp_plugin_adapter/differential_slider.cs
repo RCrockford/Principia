@@ -18,10 +18,15 @@ internal class DifferentialSlider : ScalingRenderer {
                             double max_value = double.PositiveInfinity,
                             ValueFormatter formatter = null,
                             ValueParser parser = null,
-                            UnityEngine.Color? text_colour = null) {
+                            UnityEngine.Color? text_colour = null,
+                            int label_width = 3,
+                            int field_width = 5) {
     label_ = label;
+    label_width_ = label_width;
+    field_width_ = field_width;
     unit_ = unit;
     if (formatter == null) {
+      // TODO(egg): Is this just "N3"?
       formatter_ = v => v.ToString("#,0.000", Culture.culture);
     } else {
       formatter_ = formatter;
@@ -49,9 +54,7 @@ internal class DifferentialSlider : ScalingRenderer {
   }
 
   public double max_value {
-    set {
-      max_value_ = value;
-    }
+    set => max_value_ = value;
   }
 
   public double value {
@@ -76,7 +79,7 @@ internal class DifferentialSlider : ScalingRenderer {
           style.normal.textColor = text_colour_.Value;
         }
         UnityEngine.GUILayout.Label(text    : label_,
-                                    options : GUILayoutWidth(3),
+                                    options : GUILayoutWidth(label_width_),
                                     style   : style);
       }
 
@@ -97,14 +100,14 @@ internal class DifferentialSlider : ScalingRenderer {
         formatted_value_ = UnityEngine.GUILayout.TextField(
             text    : formatted_value_,
             style   : style,
-            options : GUILayoutWidth(5 + (unit_ == null ? 2 : 0)));
+            options : GUILayoutWidth(field_width_));
 
         // See if the user typed 'Return' in the field, or moved focus
         // elsewhere, in which case we terminate text entry.
         bool terminate_text_entry = false;
         var current_event = UnityEngine.Event.current;
-        if (UnityEngine.Event.current.isKey &&
-            UnityEngine.Event.current.keyCode == UnityEngine.KeyCode.Return &&
+        if (current_event.isKey &&
+            current_event.keyCode == UnityEngine.KeyCode.Return &&
             UnityEngine.GUI.GetNameOfFocusedControl() == text_field_name) {
           terminate_text_entry = true;
         } else if (UnityEngine.GUI.GetNameOfFocusedControl() !=
@@ -176,6 +179,8 @@ internal class DifferentialSlider : ScalingRenderer {
   }
 
   private readonly string label_;
+  private readonly int label_width_;
+  private readonly int field_width_;
   private readonly string unit_;
 
   private readonly double log10_lower_rate_;

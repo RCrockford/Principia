@@ -7,13 +7,18 @@
 #include "astronomy/epoch.hpp"
 #include "base/not_null.hpp"
 #include "base/status.hpp"
+#include "geometry/r3x3_matrix.hpp"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "ksp_plugin/celestial.hpp"
 #include "ksp_plugin/integrators.hpp"
+#include "physics/inertia_tensor.hpp"
 #include "physics/massive_body.hpp"
+#include "physics/rigid_motion.hpp"
 #include "physics/rotating_body.hpp"
 #include "physics/mock_ephemeris.hpp"
+#include "quantities/named_quantities.hpp"
+#include "quantities/quantities.hpp"
 #include "quantities/si.hpp"
 #include "testing_utilities/almost_equals.hpp"
 #include "testing_utilities/componentwise.hpp"
@@ -27,10 +32,15 @@ using base::make_not_null_unique;
 using base::Status;
 using geometry::Displacement;
 using geometry::Position;
+using geometry::R3x3Matrix;
 using geometry::Velocity;
+using physics::InertiaTensor;
 using physics::MassiveBody;
 using physics::MockEphemeris;
+using physics::RigidMotion;
 using physics::RotatingBody;
+using quantities::MomentOfInertia;
+using quantities::SIUnit;
 using quantities::si::Degree;
 using quantities::si::Kilogram;
 using quantities::si::Metre;
@@ -46,6 +56,9 @@ using ::testing::MockFunction;
 using ::testing::Return;
 using ::testing::_;
 
+constexpr MomentOfInertia zero;
+constexpr MomentOfInertia one = SIUnit<MomentOfInertia>();
+
 class VesselTest : public testing::Test {
  protected:
   VesselTest()
@@ -58,21 +71,27 @@ class VesselTest : public testing::Test {
                   /*right_ascension_of_pole=*/0 * Degree,
                   /*declination_of_pole=*/90 * Degree)),
         celestial_(&body_),
+        inertia_tensor1_(
+            InertiaTensor<RigidPart>::MakeWaterSphereInertiaTensor(mass1_)),
+        inertia_tensor2_(
+            InertiaTensor<RigidPart>::MakeWaterSphereInertiaTensor(mass2_)),
         vessel_("123",
                 "vessel",
                 &celestial_,
                 &ephemeris_,
                 DefaultPredictionParameters()) {
-    auto p1 = make_not_null_unique<Part>(part_id1_,
-                                         "p1",
-                                         mass1_,
-                                         p1_dof_,
-                                         /*deletion_callback=*/nullptr);
-    auto p2 = make_not_null_unique<Part>(part_id2_,
-                                         "p2",
-                                         mass2_,
-                                         p2_dof_,
-                                         /*deletion_callback=*/nullptr);
+    auto p1 = make_not_null_unique<Part>(
+        part_id1_,
+        "p1",
+        inertia_tensor1_,
+        RigidMotion<RigidPart, Barycentric>::MakeNonRotatingMotion(p1_dof_),
+        /*deletion_callback=*/nullptr);
+    auto p2 = make_not_null_unique<Part>(
+        part_id2_,
+        "p2",
+        inertia_tensor2_,
+        RigidMotion<RigidPart, Barycentric>::MakeNonRotatingMotion(p2_dof_),
+        /*deletion_callback=*/nullptr);
     p1_ = p1.get();
     p2_ = p2.get();
     vessel_.AddPart(std::move(p1));
@@ -86,6 +105,8 @@ class VesselTest : public testing::Test {
   PartId const part_id2_ = 222;
   Mass const mass1_ = 1 * Kilogram;
   Mass const mass2_ = 2 * Kilogram;
+  InertiaTensor<RigidPart> inertia_tensor1_;
+  InertiaTensor<RigidPart> inertia_tensor2_;
 
   // Centre of mass of |p1_| and |p2_| in |Barycentric|, in SI units:
   //   {13 / 3, 4, 11 / 3} {130 / 3, 40, 110 / 3}
@@ -136,19 +157,19 @@ TEST_F(VesselTest, PrepareHistory) {
       .WillRepeatedly(Return(astronomy::J2000 + 2 * Second));
   EXPECT_CALL(
       ephemeris_,
-      FlowWithAdaptiveStep(_, _, astronomy::InfiniteFuture, _, _, _))
+      FlowWithAdaptiveStep(_, _, astronomy::InfiniteFuture, _, _))
       .Times(AnyNumber());
   EXPECT_CALL(
       ephemeris_,
-      FlowWithAdaptiveStep(_, _, astronomy::J2000 + 2 * Second, _, _, _))
+      FlowWithAdaptiveStep(_, _, astronomy::J2000 + 2 * Second, _, _))
       .Times(AnyNumber());
   vessel_.PrepareHistory(astronomy::J2000 + 1 * Second);
 
   EXPECT_EQ(1, vessel_.psychohistory().Size());
   EXPECT_EQ(astronomy::J2000 + 1 * Second,
-            vessel_.psychohistory().last().time());
+            vessel_.psychohistory().back().time);
   EXPECT_THAT(
-      vessel_.psychohistory().last().degrees_of_freedom(),
+      vessel_.psychohistory().back().degrees_of_freedom,
       Componentwise(AlmostEquals(Barycentric::origin +
                                       Displacement<Barycentric>(
                                           {13.0 / 3.0 * Metre,
@@ -157,7 +178,7 @@ TEST_F(VesselTest, PrepareHistory) {
                     AlmostEquals(Velocity<Barycentric>(
                                       {130.0 / 3.0 * Metre / Second,
                                       40.0 * Metre / Second,
-                                      110.0 / 3.0 * Metre / Second}), 0)));
+                                      110.0 / 3.0 * Metre / Second}), 4)));
 }
 
 TEST_F(VesselTest, AdvanceTime) {
@@ -165,11 +186,11 @@ TEST_F(VesselTest, AdvanceTime) {
       .WillRepeatedly(Return(astronomy::J2000 + 2 * Second));
   EXPECT_CALL(
       ephemeris_,
-      FlowWithAdaptiveStep(_, _, astronomy::InfiniteFuture, _, _, _))
+      FlowWithAdaptiveStep(_, _, astronomy::InfiniteFuture, _, _))
       .Times(AnyNumber());
   EXPECT_CALL(
       ephemeris_,
-      FlowWithAdaptiveStep(_, _, astronomy::J2000 + 2 * Second, _, _, _))
+      FlowWithAdaptiveStep(_, _, astronomy::J2000 + 2 * Second, _, _))
       .Times(AnyNumber());
   vessel_.PrepareHistory(astronomy::J2000);
 
@@ -209,10 +230,10 @@ TEST_F(VesselTest, AdvanceTime) {
   vessel_.AdvanceTime();
 
   EXPECT_EQ(3, vessel_.psychohistory().Size());
-  auto it = vessel_.psychohistory().Begin();
+  auto it = vessel_.psychohistory().begin();
   ++it;
-  EXPECT_EQ(astronomy::J2000 + 0.5 * Second, it.time());
-  EXPECT_THAT(it.degrees_of_freedom(),
+  EXPECT_EQ(astronomy::J2000 + 0.5 * Second, it->time);
+  EXPECT_THAT(it->degrees_of_freedom,
               Componentwise(AlmostEquals(Barycentric::origin +
                                          Displacement<Barycentric>(
                                              {13.3 / 3.0 * Metre,
@@ -223,8 +244,8 @@ TEST_F(VesselTest, AdvanceTime) {
                                        40.1 * Metre / Second,
                                        110.3 / 3.0 * Metre / Second}), 1)));
   ++it;
-  EXPECT_EQ(astronomy::J2000 + 1.0 * Second, it.time());
-  EXPECT_THAT(it.degrees_of_freedom(),
+  EXPECT_EQ(astronomy::J2000 + 1.0 * Second, it->time);
+  EXPECT_THAT(it->degrees_of_freedom,
               Componentwise(AlmostEquals(Barycentric::origin +
                                          Displacement<Barycentric>(
                                              {13.6 / 3.0 * Metre,
@@ -243,7 +264,7 @@ TEST_F(VesselTest, Prediction) {
       .WillRepeatedly(Return(astronomy::J2000 + 2 * Second));
   EXPECT_CALL(
       ephemeris_,
-      FlowWithAdaptiveStep(_, _, astronomy::InfiniteFuture, _, _, _))
+      FlowWithAdaptiveStep(_, _, astronomy::InfiniteFuture, _, _))
       .WillOnce(
           DoAll(AppendToDiscreteTrajectory(
                     astronomy::J2000 + 1.0 * Second,
@@ -258,7 +279,7 @@ TEST_F(VesselTest, Prediction) {
       .WillRepeatedly(Return(Status::OK));
   EXPECT_CALL(
       ephemeris_,
-      FlowWithAdaptiveStep(_, _, astronomy::J2000 + 2 * Second, _, _, _))
+      FlowWithAdaptiveStep(_, _, astronomy::J2000 + 2 * Second, _, _))
       .WillOnce(
           DoAll(AppendToDiscreteTrajectory(
                     astronomy::J2000 + 1.0 * Second,
@@ -278,13 +299,13 @@ TEST_F(VesselTest, Prediction) {
     vessel_.RefreshPrediction(astronomy::J2000 + 1 * Second);
     using namespace std::chrono_literals;
     std::this_thread::sleep_for(100ms);
-  } while (vessel_.prediction().last().time() == astronomy::J2000);
+  } while (vessel_.prediction().back().time == astronomy::J2000);
 
   EXPECT_EQ(2, vessel_.prediction().Size());
-  auto it = vessel_.prediction().Begin();
-  EXPECT_EQ(astronomy::J2000, it.time());
+  auto it = vessel_.prediction().begin();
+  EXPECT_EQ(astronomy::J2000, it->time);
   EXPECT_THAT(
-      it.degrees_of_freedom(),
+      it->degrees_of_freedom,
       Componentwise(AlmostEquals(Barycentric::origin +
                                       Displacement<Barycentric>(
                                           {13.0 / 3.0 * Metre,
@@ -293,11 +314,11 @@ TEST_F(VesselTest, Prediction) {
                     AlmostEquals(Velocity<Barycentric>(
                                       {130.0 / 3.0 * Metre / Second,
                                        40.0 * Metre / Second,
-                                       110.0 / 3.0 * Metre / Second}), 0)));
+                                       110.0 / 3.0 * Metre / Second}), 4)));
   ++it;
-  EXPECT_EQ(astronomy::J2000 + 1.0 * Second, it.time());
+  EXPECT_EQ(astronomy::J2000 + 1.0 * Second, it->time);
   EXPECT_THAT(
-      it.degrees_of_freedom(),
+      it->degrees_of_freedom,
       Componentwise(AlmostEquals(Barycentric::origin +
                                       Displacement<Barycentric>(
                                           {14.0 / 3.0 * Metre,
@@ -316,7 +337,7 @@ TEST_F(VesselTest, PredictBeyondTheInfinite) {
       .WillRepeatedly(Return(astronomy::J2000 + 0.5 * Second));
   EXPECT_CALL(
       ephemeris_,
-      FlowWithAdaptiveStep(_, _, astronomy::J2000 + 0.5 * Second, _, _, _))
+      FlowWithAdaptiveStep(_, _, astronomy::J2000 + 0.5 * Second, _, _))
       .WillRepeatedly(
           DoAll(AppendToDiscreteTrajectory(
                     astronomy::J2000 + 0.5 * Second,
@@ -331,7 +352,7 @@ TEST_F(VesselTest, PredictBeyondTheInfinite) {
                 Return(Status::OK)));
   EXPECT_CALL(
       ephemeris_,
-      FlowWithAdaptiveStep(_, _, astronomy::InfiniteFuture, _, _, _))
+      FlowWithAdaptiveStep(_, _, astronomy::InfiniteFuture, _, _))
       .WillRepeatedly(
           DoAll(AppendToDiscreteTrajectory(
                     astronomy::J2000 + 1.0 * Second,
@@ -352,13 +373,13 @@ TEST_F(VesselTest, PredictBeyondTheInfinite) {
     std::this_thread::sleep_for(100ms);
   } while (vessel_.prediction().Size() != 3);
 
-  auto it = vessel_.prediction().Begin();
+  auto it = vessel_.prediction().begin();
   ++it;
-  EXPECT_EQ(astronomy::J2000 + 0.5 * Second, it.time());
+  EXPECT_EQ(astronomy::J2000 + 0.5 * Second, it->time);
   ++it;
-  EXPECT_EQ(astronomy::J2000 + 1.0 * Second, it.time());
+  EXPECT_EQ(astronomy::J2000 + 1.0 * Second, it->time);
   EXPECT_THAT(
-      it.degrees_of_freedom(),
+      it->degrees_of_freedom,
       Componentwise(AlmostEquals(Barycentric::origin +
                                       Displacement<Barycentric>(
                                           {5.0 * Metre,
@@ -375,18 +396,18 @@ TEST_F(VesselTest, FlightPlan) {
       .WillRepeatedly(Return(astronomy::J2000 + 2 * Second));
   EXPECT_CALL(
       ephemeris_,
-      FlowWithAdaptiveStep(_, _, astronomy::InfiniteFuture, _, _, _))
+      FlowWithAdaptiveStep(_, _, astronomy::InfiniteFuture, _, _))
       .Times(AnyNumber());
   EXPECT_CALL(
       ephemeris_,
-      FlowWithAdaptiveStep(_, _, astronomy::J2000 + 2 * Second, _, _, _))
+      FlowWithAdaptiveStep(_, _, astronomy::J2000 + 2 * Second, _, _))
       .Times(AnyNumber());
   vessel_.PrepareHistory(astronomy::J2000);
 
   EXPECT_FALSE(vessel_.has_flight_plan());
   EXPECT_CALL(
       ephemeris_,
-      FlowWithAdaptiveStep(_, _, astronomy::J2000 + 3 * Second, _, _, _))
+      FlowWithAdaptiveStep(_, _, astronomy::J2000 + 3 * Second, _, _))
       .WillOnce(Return(Status::OK));
   vessel_.CreateFlightPlan(astronomy::J2000 + 3.0 * Second,
                            10 * Kilogram,
@@ -408,17 +429,17 @@ TEST_F(VesselTest, SerializationSuccess) {
       .WillRepeatedly(Return(astronomy::J2000 + 2 * Second));
   EXPECT_CALL(
       ephemeris_,
-      FlowWithAdaptiveStep(_, _, astronomy::InfiniteFuture, _, _, _))
+      FlowWithAdaptiveStep(_, _, astronomy::InfiniteFuture, _, _))
       .Times(AnyNumber());
   EXPECT_CALL(
       ephemeris_,
-      FlowWithAdaptiveStep(_, _, astronomy::J2000 + 2 * Second, _, _, _))
+      FlowWithAdaptiveStep(_, _, astronomy::J2000 + 2 * Second, _, _))
       .Times(AnyNumber());
   vessel_.PrepareHistory(astronomy::J2000);
 
   EXPECT_CALL(
       ephemeris_,
-      FlowWithAdaptiveStep(_, _, astronomy::J2000 + 3 * Second, _, _, _))
+      FlowWithAdaptiveStep(_, _, astronomy::J2000 + 3 * Second, _, _))
       .WillRepeatedly(Return(Status::OK));
   vessel_.CreateFlightPlan(astronomy::J2000 + 3.0 * Second,
                            10 * Kilogram,

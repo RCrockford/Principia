@@ -117,7 +117,7 @@ class Ephemeris {
   using GeneralizedAdaptiveStepParameters =
       ODEAdaptiveStepParameters<GeneralizedNewtonianMotionEquation>;
 
-  class PHYSICS_DLL AccuracyParameters final {
+  class AccuracyParameters final {
    public:
     AccuracyParameters(Length const& fitting_tolerance,
                        double geopotential_tolerance);
@@ -134,7 +134,7 @@ class Ephemeris {
     friend class Ephemeris<Frame>;
   };
 
-  class PHYSICS_DLL FixedStepParameters final {
+  class FixedStepParameters final {
    public:
     FixedStepParameters(
         FixedStepSizeIntegrator<NewtonianMotionEquation> const& integrator,
@@ -207,17 +207,14 @@ class Ephemeris {
   // Integrates, until exactly |t| (except for timeouts or singularities), the
   // |trajectory| followed by a massless body in the gravitational potential
   // described by |*this|.  If |t > t_max()|, calls |Prolong(t)| beforehand.
-  // Prolongs the ephemeris by at most |max_ephemeris_steps|.  If
-  // |last_point_only| is true, only the last point is appended to the
-  // trajectory.  Returns OK if and only if |*trajectory| was integrated until
-  // |t|.
+  // Prolongs the ephemeris by at most |max_ephemeris_steps|.  Returns OK if and
+  // only if |*trajectory| was integrated until |t|.
   virtual Status FlowWithAdaptiveStep(
       not_null<DiscreteTrajectory<Frame>*> trajectory,
       IntrinsicAcceleration intrinsic_acceleration,
       Instant const& t,
       AdaptiveStepParameters const& parameters,
-      std::int64_t max_ephemeris_steps,
-      bool last_point_only) EXCLUDES(lock_);
+      std::int64_t max_ephemeris_steps) EXCLUDES(lock_);
 
   // Same as above, but uses a generalized integrator.
   virtual Status FlowWithAdaptiveStep(
@@ -225,8 +222,7 @@ class Ephemeris {
       GeneralizedIntrinsicAcceleration intrinsic_acceleration,
       Instant const& t,
       GeneralizedAdaptiveStepParameters const& parameters,
-      std::int64_t max_ephemeris_steps,
-      bool last_point_only) EXCLUDES(lock_);
+      std::int64_t max_ephemeris_steps) EXCLUDES(lock_);
 
   // Integrates, until at most |t|, the trajectories followed by massless
   // bodies in the gravitational potential described by |*this|.  If
@@ -281,12 +277,14 @@ class Ephemeris {
 
   virtual void WriteToMessage(
       not_null<serialization::Ephemeris*> message) const EXCLUDES(lock_);
+  template<typename F = Frame,
+           typename = std::enable_if_t<base::is_serializable_v<F>>>
   static not_null<std::unique_ptr<Ephemeris>> ReadFromMessage(
       serialization::Ephemeris const& message) EXCLUDES(lock_);
 
   // A |Guard| is an RAII object that protects a critical section against
   // changes to |t_min| due to calls to |EventuallyForgetBefore|.
-  class PHYSICS_DLL Guard final {
+  class Guard final {
    public:
     explicit Guard(not_null<Ephemeris<Frame> const*> ephemeris);
     ~Guard();
@@ -311,9 +309,13 @@ class Ephemeris {
  private:
   // Checkpointing support.
   void WriteToCheckpoint(not_null<serialization::Ephemeris*> message);
+  template<typename F = Frame,
+           typename = std::enable_if_t<base::is_serializable_v<F>>>
   bool ReadFromCheckpoint(serialization::Ephemeris const& message);
   void CreateCheckpointIfNeeded(Instant const& time) const
       SHARED_LOCKS_REQUIRED(lock_);
+  Checkpointer<serialization::Ephemeris>::Reader
+  static MakeCheckpointerReader(Ephemeris* const ephemeris);
 
   // Callbacks for the integrators.
   void AppendMassiveBodiesState(
@@ -387,8 +389,7 @@ class Ephemeris {
       not_null<DiscreteTrajectory<Frame>*> trajectory,
       Instant const& t,
       ODEAdaptiveStepParameters<ODE> const& parameters,
-      std::int64_t max_ephemeris_steps,
-      bool last_point_only) EXCLUDES(lock_);
+      std::int64_t max_ephemeris_steps) EXCLUDES(lock_);
 
   // Computes an estimate of the ratio |tolerance / error|.
   static double ToleranceToErrorRatio(
@@ -448,6 +449,4 @@ using internal_ephemeris::Ephemeris;
 }  // namespace physics
 }  // namespace principia
 
-#if !PHYSICS_DLL_IMPORT
 #include "physics/ephemeris_body.hpp"
-#endif

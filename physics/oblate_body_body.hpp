@@ -58,17 +58,32 @@ OblateBody<Frame>::Parameters::ReadFromMessage(
   for (auto const& row : message.row()) {
     const int n = row.degree();
     CHECK_LE(n, OblateBody<Frame>::max_geopotential_degree);
-    CHECK(degrees_seen.insert(n).second)
-        << "Degree " << n << " specified multiple times";
+    bool const inserted = degrees_seen.insert(n).second;
+    CHECK(inserted) << "Degree " << n << " specified multiple times";
     CHECK_LE(row.column_size(), n + 1)
         << "Degree " << n << " has " << row.column_size() << " coefficients";
     std::set<int> orders_seen;
     for (auto const& column : row.column()) {
       const int m = column.order();
       CHECK_LE(m, n);
-      CHECK(orders_seen.insert(m).second)
-          << "Degree " << n << " order " << m << " specified multiple times";
-      parameters.cos_[n][m] = column.cos();
+      bool const inserted = orders_seen.insert(m).second;
+      CHECK(inserted) << "Degree " << n << " order " << m
+                      << " specified multiple times";
+
+      // If j was specified, check that it is legit and compute cos.
+      double cos = column.cos();
+      if (m == 0) {
+        if (column.has_j()) {
+          cos = -column.j() / LegendreNormalizationFactor[n][0];
+        } else {
+          CHECK(column.has_cos())
+              << "Cos and J missing for degree " << n << " order " << m;
+        }
+      } else {
+        CHECK(column.has_cos())
+            << "Cos missing for degree " << n << " order " << m;
+      }
+      parameters.cos_[n][m] = cos;
       parameters.sin_[n][m] = column.sin();
     }
   }

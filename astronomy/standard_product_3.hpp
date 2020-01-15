@@ -69,13 +69,16 @@ class StandardProduct3 {
     // SP3-c, but contain more than 85 satellites.  This is achieved by doubling
     // the number of satellite ID records: there are 10 satellite ID records,
     // for a maximum of 170 satellites.
-    // While SP3-d allows for an unlimited number of satellite ID records, it is
-    // questionable whether files in this dialect are valid SP3-d, aside from
-    // the version identifier: indeed, they often have lines containing only 0s
-    // to pad to 10 lines of satellite IDs, whereas the SP3-d documentation
-    // seems to suggest that such padding is restricted to a last partial line:
+    // While SP3-d allows for an unlimited number of satellite ID records, the
+    // files in this dialect are not valid SP3-d, even ignoring the version
+    // identifier: indeed, they often have lines containing only 0s to pad to 10
+    // lines of satellite IDs, whereas the SP3-d documentation restricts such
+    // padding to a last partial line:
     // “The last “+ ” line may contain zeroes if the number of satellites (given
     // on line three) is not an even multiple of 17.”.
+    // See also the computation of the last line number in the specification,
+    // which accounts for 2*(INT(NSAT/17.01)+1) “+ ” and “++” lines when NSAT is
+    // greater than 85.
     ChineseMGEX,
   };
 
@@ -124,8 +127,8 @@ class StandardProduct3 {
            std::vector<not_null<std::unique_ptr<DiscreteTrajectory<ITRS>>>>>
       orbits_;
   // |orbits_| is the same as |const_orbits_|, but with non-owning pointers to
-  // constant trajectories; this allows us to references to these vectors from
-  // |StandardProduct3::orbit|.
+  // constant trajectories; this allows us to return references to these vectors
+  // from |StandardProduct3::orbit|.
   std::map<SatelliteIdentifier,
            std::vector<not_null<DiscreteTrajectory<ITRS> const*>>>
       const_orbits_;

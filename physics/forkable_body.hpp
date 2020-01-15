@@ -22,7 +22,16 @@ template<typename Tr4jectory, typename It3rator>
 bool ForkableIterator<Tr4jectory, It3rator>::operator==(
     It3rator const& right) const {
   DCHECK_EQ(trajectory(), right.trajectory());
-  return ancestry_ == right.ancestry_ && current_ == right.current_;
+  // The comparison of iterators is faster than the comparison of deques, so if
+  // this function returns false (which it does repeatedly in loops), it might
+  // as well do so quickly.  There is a complication, however, because the two
+  // iterators may not point to the same container, and we believe that
+  // comparing them would be undefined behaviour; hence the size comparison,
+  // which ensures that the two iterators are in the same fork and therefore can
+  // legitimately be compared.
+  return ancestry_.size() == right.ancestry_.size() &&
+         current_ == right.current_ &&
+         ancestry_ == right.ancestry_;
 }
 
 template<typename Tr4jectory, typename It3rator>
@@ -92,7 +101,7 @@ It3rator& ForkableIterator<Tr4jectory, It3rator>::operator--() {
 }
 
 template<typename Tr4jectory, typename It3rator>
-typename ForkableIterator<Tr4jectory, It3rator>::TimelineConstIterator
+typename ForkableIterator<Tr4jectory, It3rator>::TimelineConstIterator const&
 ForkableIterator<Tr4jectory, It3rator>::current() const {
   return current_;
 }
@@ -109,8 +118,10 @@ void ForkableIterator<Tr4jectory, It3rator>::NormalizeIfEnd() {
 
 template<typename Tr4jectory, typename It3rator>
 void ForkableIterator<Tr4jectory, It3rator>::CheckNormalizedIfEnd() {
-  CHECK(current_ != ancestry_.front()->timeline_end() ||
-        ancestry_.size() == 1);
+  // Checking if the trajectory is a root is faster than obtaining the end of
+  // the front of the deque, so it should be done first.
+  CHECK(ancestry_.size() == 1 ||
+        current_ != ancestry_.front()->timeline_end());
 }
 
 template<typename Tr4jectory, typename It3rator>
@@ -164,19 +175,31 @@ not_null<Tr4jectory*> Forkable<Tr4jectory, It3rator>::parent() {
 }
 
 template<typename Tr4jectory, typename It3rator>
-It3rator Forkable<Tr4jectory, It3rator>::Begin() const {
+It3rator Forkable<Tr4jectory, It3rator>::begin() const {
   not_null<Tr4jectory const*> ancestor = root();
   return Wrap(ancestor, ancestor->timeline_begin());
 }
 
 template<typename Tr4jectory, typename It3rator>
-It3rator Forkable<Tr4jectory, It3rator>::End() const {
+It3rator Forkable<Tr4jectory, It3rator>::end() const {
   not_null<Tr4jectory const*> const ancestor = that();
   It3rator iterator;
   iterator.ancestry_.push_front(ancestor);
   iterator.current_ = ancestor->timeline_end();
   iterator.CheckNormalizedIfEnd();
   return iterator;
+}
+
+template<typename Tr4jectory, typename It3rator>
+typename It3rator::reference Forkable<Tr4jectory, It3rator>::front() const {
+  // TODO(phl): This can be implemented more efficiently.
+  return *begin();
+}
+
+template<typename Tr4jectory, typename It3rator>
+typename It3rator::reference Forkable<Tr4jectory, It3rator>::back() const {
+  // TODO(phl): This can be implemented more efficiently.
+  return *--end();
 }
 
 template<typename Tr4jectory, typename It3rator>
@@ -349,8 +372,7 @@ void Forkable<Tr4jectory, It3rator>::AttachForkToCopiedBegin(
   // |begin()| are referencing a point that will soon be removed from the
   // timeline.  They must now point at |end()| to indicate that their fork time
   // is not in |fork|'s timeline.
-  for (auto const& pair : fork->children_) {
-    std::unique_ptr<Tr4jectory> const& child = pair.second;
+  for (auto const& [_, child] : fork->children_) {
     if (child->position_in_parent_timeline_ == fork_timeline_begin) {
       child->position_in_parent_timeline_ = fork_timeline_end;
     }
@@ -379,8 +401,7 @@ Forkable<Tr4jectory, It3rator>::DetachForkWithCopiedBegin() {
   // The children whose |position_in_parent_timeline_| was at |end()| are those
   // whose fork time was not in this object's timeline.  The caller must have
   // ensured that now it is, so point them to the beginning of this timeline.
-  for (auto const& pair : children_) {
-    std::unique_ptr<Tr4jectory> const& child = pair.second;
+  for (auto const& [_, child] : children_) {
     if (child->position_in_parent_timeline_ == timeline_end()) {
       child->position_in_parent_timeline_ = timeline_begin();
     }
@@ -427,10 +448,7 @@ void Forkable<Tr4jectory, It3rator>::WriteSubTreeToMessage(
     std::vector<Tr4jectory*>& forks) const {
   std::optional<Instant> last_instant;
   serialization::DiscreteTrajectory::Litter* litter = nullptr;
-  for (auto const& pair : children_) {
-    Instant const& fork_time = pair.first;
-    std::unique_ptr<Tr4jectory> const& child = pair.second;
-
+  for (auto const& [fork_time, child] : children_) {
     // Determine if this |child| needs to be serialized.  If so, record its
     // position in |fork_positions| and null out its pointer in |forks|.
     // Apologies for the O(N) search.

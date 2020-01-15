@@ -16,6 +16,8 @@ namespace internal_renderer {
 
 using base::make_not_null_unique;
 using geometry::AngularVelocity;
+using geometry::OddPermutation;
+using geometry::Permutation;
 using geometry::RigidTransformation;
 using geometry::Vector;
 using geometry::Velocity;
@@ -83,8 +85,8 @@ Renderer::RenderBarycentricTrajectoryInWorld(
       RenderBarycentricTrajectoryInPlotting(begin, end);
   auto trajectory_in_world =
       RenderPlottingTrajectoryInWorld(time,
-                                      trajectory_in_plotting_frame->Begin(),
-                                      trajectory_in_plotting_frame->End(),
+                                      trajectory_in_plotting_frame->begin(),
+                                      trajectory_in_plotting_frame->end(),
                                       sun_world_position,
                                       planetarium_rotation);
   return trajectory_in_world;
@@ -96,16 +98,16 @@ Renderer::RenderBarycentricTrajectoryInPlotting(
     DiscreteTrajectory<Barycentric>::Iterator const& end) const {
   auto trajectory = make_not_null_unique<DiscreteTrajectory<Navigation>>();
   for (auto it = begin; it != end; ++it) {
-    Instant const& t = it.time();
+    auto const& [time, degrees_of_freedom] = *it;
     if (target_) {
       auto const& prediction = target_->vessel->prediction();
-      if (t < prediction.t_min()) {
+      if (time < prediction.t_min()) {
         continue;
-      } else if (t > prediction.t_max()) {
+      } else if (time > prediction.t_max()) {
         break;
       }
     }
-    trajectory->Append(t, BarycentricToPlotting(t)(it.degrees_of_freedom()));
+    trajectory->Append(time, BarycentricToPlotting(time)(degrees_of_freedom));
   }
   return trajectory;
 }
@@ -118,6 +120,11 @@ Renderer::RenderPlottingTrajectoryInWorld(
     Position<World> const& sun_world_position,
     Rotation<Barycentric, AliceSun> const& planetarium_rotation) const {
   auto trajectory = make_not_null_unique<DiscreteTrajectory<World>>();
+
+  //   Dinanzi a me non fuor cose create
+  //   se non etterne, e io etterno duro.
+  //   Lasciate ogne speranza, voi ch’intrate.
+  //
   // This function does unnatural things.
   // - It identifies positions in the plotting frame with those of world using
   // the rigid transformation at the current time, instead of transforming each
@@ -132,7 +139,8 @@ Renderer::RenderPlottingTrajectoryInWorld(
   // velocity).
   // The resulting |DegreesOfFreedom| should be seen as no more than a
   // convenient hack to send a plottable position together with a velocity in
-  // the coordinates we want.
+  // the coordinates we want.  In fact, it needs an articial permutation to
+  // avoid a violation of handedness.
   // TODO(phl): This will no longer be needed once we have support for
   // projections; instead of these convenient lies we can simply say that the
   // camera is fixed in the plotting frame and project there; additional data
@@ -142,14 +150,17 @@ Renderer::RenderPlottingTrajectoryInWorld(
       from_plotting_frame_to_world_at_current_time =
           PlottingToWorld(time, sun_world_position, planetarium_rotation);
   for (auto it = begin; it != end; ++it) {
+    auto const& [time, degrees_of_freedom] = *it;
     DegreesOfFreedom<Navigation> const& navigation_degrees_of_freedom =
-        it.degrees_of_freedom();
+        degrees_of_freedom;
     DegreesOfFreedom<World> const world_degrees_of_freedom = {
         from_plotting_frame_to_world_at_current_time(
             navigation_degrees_of_freedom.position()),
-        geometry::Identity<Navigation, World>{}(
+        geometry::Permutation<Navigation, World>(
+            geometry::Permutation<Navigation,
+                                  World>::CoordinatePermutation::YXZ)(
             navigation_degrees_of_freedom.velocity())};
-    trajectory->Append(it.time(), world_degrees_of_freedom);
+    trajectory->Append(time, world_degrees_of_freedom);
   }
   return trajectory;
 }
@@ -177,7 +188,8 @@ OrthogonalMap<Barycentric, World> Renderer::BarycentricToWorld(
 
 OrthogonalMap<Barycentric, WorldSun> Renderer::BarycentricToWorldSun(
     Rotation<Barycentric, AliceSun> const& planetarium_rotation) const {
-  return sun_looking_glass.Inverse().Forget() * planetarium_rotation.Forget();
+  return sun_looking_glass.Inverse().Forget<OrthogonalMap>() *
+         planetarium_rotation.Forget<OrthogonalMap>();
 }
 
 OrthogonalMap<Frenet<Navigation>, World> Renderer::FrenetToWorld(
@@ -193,33 +205,32 @@ OrthogonalMap<Frenet<Navigation>, World> Renderer::FrenetToWorld(
 OrthogonalMap<Frenet<Navigation>, World> Renderer::FrenetToWorld(
     Vessel const& vessel,
     Rotation<Barycentric, AliceSun> const& planetarium_rotation) const {
-  auto const last = vessel.psychohistory().last();
-  Instant const& time = last.time();
+  auto const back = vessel.psychohistory().back();
   DegreesOfFreedom<Barycentric> const& barycentric_degrees_of_freedom =
-      last.degrees_of_freedom();
+      back.degrees_of_freedom;
   DegreesOfFreedom<Navigation> const plotting_frame_degrees_of_freedom =
-      BarycentricToPlotting(time)(barycentric_degrees_of_freedom);
+      BarycentricToPlotting(back.time)(barycentric_degrees_of_freedom);
   Rotation<Frenet<Navigation>, Navigation> const
       frenet_frame_to_plotting_frame =
           GetPlottingFrame()->FrenetFrame(
-              time,
+              back.time,
               plotting_frame_degrees_of_freedom);
 
-  return PlottingToWorld(time, planetarium_rotation) *
-         frenet_frame_to_plotting_frame.Forget();
+  return PlottingToWorld(back.time, planetarium_rotation) *
+         frenet_frame_to_plotting_frame.Forget<OrthogonalMap>();
 }
 
 OrthogonalMap<Frenet<Navigation>, World> Renderer::FrenetToWorld(
     Vessel const& vessel,
     NavigationFrame const& navigation_frame,
     Rotation<Barycentric, AliceSun> const& planetarium_rotation) const {
-  auto const last = vessel.psychohistory().last();
-  auto const to_navigation = navigation_frame.ToThisFrameAtTime(last.time());
+  auto const back = vessel.psychohistory().back();
+  auto const to_navigation = navigation_frame.ToThisFrameAtTime(back.time);
   auto const from_navigation = to_navigation.orthogonal_map().Inverse();
   auto const frenet_frame =
       navigation_frame.FrenetFrame(
-          last.time(),
-          to_navigation(last.degrees_of_freedom())).Forget();
+          back.time,
+          to_navigation(back.degrees_of_freedom)).Forget<OrthogonalMap>();
   return BarycentricToWorld(planetarium_rotation) * from_navigation *
          frenet_frame;
 }
@@ -263,6 +274,20 @@ RigidTransformation<World, Navigation> Renderer::WorldToPlotting(
     Rotation<Barycentric, AliceSun> const& planetarium_rotation) const {
   return BarycentricToPlotting(time).rigid_transformation() *
          WorldToBarycentric(time, sun_world_position, planetarium_rotation);
+}
+
+Rotation<CameraReference, World> Renderer::CameraReferenceRotation(
+    Instant const& time,
+    Rotation<Barycentric, AliceSun> const& planetarium_rotation) const {
+  Permutation<CameraReference, Navigation> const celestial_mirror(
+      OddPermutation::XZY);
+  auto const result =
+      OrthogonalMap<WorldSun, World>::Identity() *
+      sun_looking_glass.Inverse().Forget<OrthogonalMap>() *
+      planetarium_rotation.Forget<OrthogonalMap>() *
+      GetPlottingFrame()->FromThisFrameAtTime(time).orthogonal_map() *
+      celestial_mirror.Forget<OrthogonalMap>();
+  return result.AsRotation();
 }
 
 void Renderer::WriteToMessage(

@@ -35,7 +35,7 @@ class RotatingBody : public MassiveBody {
   static_assert(Frame::is_inertial, "Frame must be inertial");
 
  public:
-  class PHYSICS_DLL Parameters final {
+  class Parameters final {
    public:
     // |reference_angle| is the angle of the prime meridian at
     // |reference_instant|.  |angular_frequency| gives the rate of rotation of
@@ -43,6 +43,16 @@ class RotatingBody : public MassiveBody {
     // planets and satellites whose rotation is retrograde).  The direction of
     // the pole is specified in |Frame| using |right_ascension_of_pole| and
     // |declination_of_pole|.
+    Parameters(Length const& min_radius,
+               Length const& mean_radius,
+               Length const& max_radius,
+               Angle const& reference_angle,
+               Instant const& reference_instant,
+               AngularFrequency const& angular_frequency,
+               Angle const& right_ascension_of_pole,
+               Angle const& declination_of_pole);
+
+    // Compatibility constructor, only use in tests.
     Parameters(Length const& mean_radius,
                Angle const& reference_angle,
                Instant const& reference_instant,
@@ -51,7 +61,9 @@ class RotatingBody : public MassiveBody {
                Angle const& declination_of_pole);
 
    private:
+    Length const min_radius_;
     Length const mean_radius_;
+    Length const max_radius_;
     Angle const reference_angle_;
     Instant const reference_instant_;
     AngularFrequency const angular_frequency_;
@@ -64,8 +76,10 @@ class RotatingBody : public MassiveBody {
   RotatingBody(MassiveBody::Parameters const& massive_body_parameters,
                Parameters const& parameters);
 
-  // Returns the radius passed at construction.
+  // Returns the radii passed at construction.
+  Length min_radius() const override;
   Length mean_radius() const override;
+  Length max_radius() const override;
 
   // Returns the direction defined by the right ascension and declination passed
   // at construction.
@@ -170,8 +184,6 @@ using internal_rotating_body::RotatingBody;
 }  // namespace physics
 }  // namespace principia
 
-#if !PHYSICS_DLL_IMPORT
 #include "physics/rotating_body_body.hpp"
-#endif
 
 #endif  // PRINCIPIA_PHYSICS_ROTATING_BODY_HPP_

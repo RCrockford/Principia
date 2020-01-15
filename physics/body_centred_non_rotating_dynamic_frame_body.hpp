@@ -31,7 +31,7 @@ BodyCentredNonRotatingDynamicFrame(
             auto const rotating_body =
                 dynamic_cast<RotatingBody<InertialFrame> const*>(&*centre_);
             if (rotating_body == nullptr) {
-              return Identity<InertialFrame, ThisFrame>().Forget();
+              return OrthogonalMap<InertialFrame, ThisFrame>::Identity();
             }
             // In coordinates, the third parameter is |polar_axis|, but we seem
             // to be a bit confused as to which of these things should be
@@ -41,7 +41,8 @@ BodyCentredNonRotatingDynamicFrame(
                 rotating_body->equatorial(),
                 rotating_body->biequatorial(),
                 Wedge(rotating_body->equatorial(),
-                      rotating_body->biequatorial())).Forget();
+                      rotating_body->biequatorial()))
+                      .template Forget<OrthogonalMap>();
           }()) {}
 
 template<typename InertialFrame, typename ThisFrame>
@@ -75,7 +76,7 @@ BodyCentredNonRotatingDynamicFrame<InertialFrame, ThisFrame>::ToThisFrameAtTime(
                            orthogonal_map_);
   return RigidMotion<InertialFrame, ThisFrame>(
              rigid_transformation,
-             AngularVelocity<InertialFrame>(),
+             InertialFrame::nonrotating,
              centre_degrees_of_freedom.velocity());
 }
 

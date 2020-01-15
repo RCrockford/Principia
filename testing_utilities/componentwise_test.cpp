@@ -3,6 +3,7 @@
 
 #include <limits>
 
+#include "geometry/frame.hpp"
 #include "geometry/grassmann.hpp"
 #include "geometry/pair.hpp"
 #include "geometry/r3_element.hpp"
@@ -15,11 +16,13 @@
 #include "quantities/si.hpp"
 #include "testing_utilities/almost_equals.hpp"
 #include "testing_utilities/is_near.hpp"
+#include "testing_utilities/numerics_matchers.hpp"
 #include "testing_utilities/vanishes_before.hpp"
 
 namespace principia {
 
 using geometry::Bivector;
+using geometry::Frame;
 using geometry::Pair;
 using geometry::R3Element;
 using geometry::RP2Point;
@@ -41,7 +44,7 @@ using ::testing::_;
 
 namespace testing_utilities {
 
-struct World;
+using World = Frame<enum class WorldTag>;
 
 class ComponentwiseTest : public testing::Test {};
 
@@ -77,6 +80,10 @@ TEST_F(ComponentwiseTest, Grassmann) {
   EXPECT_THAT(b, Not(Componentwise(AlmostEquals(1.0 * Metre, 4),
                                    VanishesBefore(1.0 * Metre, 4),
                                    Eq(2.5 * Metre))));
+  EXPECT_THAT(b,
+              Componentwise(AbsoluteErrorFrom(1.0 * Metre, Lt(0.001 * Metre)),
+                            VanishesBefore(1.0 * Metre, 450360),
+                            RelativeErrorFrom(2.5 * Metre, Lt(0.5))));
 }
 
 TEST_F(ComponentwiseTest, Pair) {
@@ -161,11 +168,11 @@ TEST_F(ComponentwiseTest, Variadic) {
                               6 * Metre / Second}));
   EXPECT_THAT(
       vv,
-      Componentwise(Componentwise(IsNear(1 * Metre),
-                                  IsNear(2 * Metre),
+      Componentwise(Componentwise(IsNear(1.0_⑴ * Metre),
+                                  IsNear(2.0_⑴ * Metre),
                                   AllOf(Gt(2 * Metre), Lt(4 * Metre))),
-                    Componentwise(IsNear(4 * Metre / Second),
-                                  IsNear(5 * Metre / Second),
+                    Componentwise(IsNear(4.0_⑴ * Metre / Second),
+                                  IsNear(5.0_⑴ * Metre / Second),
                                   AllOf(Gt(5 * Metre / Second),
                                         Lt(7 * Metre / Second)))));
 }

@@ -5,6 +5,7 @@
 
 #include <algorithm>
 
+#include "base/traits.hpp"
 #include "geometry/grassmann.hpp"
 #include "geometry/linear_map.hpp"
 #include "geometry/quaternion.hpp"
@@ -16,6 +17,7 @@ namespace principia {
 namespace geometry {
 namespace internal_rotation {
 
+using base::is_same_template_v;
 using base::not_null;
 using quantities::Cos;
 using quantities::Sin;
@@ -178,7 +180,7 @@ Rotation<FromFrame, ToFrame>::Rotation(
 
 template<typename FromFrame, typename ToFrame>
 Sign Rotation<FromFrame, ToFrame>::Determinant() const {
-  return Sign(1);
+  return Sign::Positive();
 }
 
 template<typename FromFrame, typename ToFrame>
@@ -205,7 +207,55 @@ template<typename FromFrame, typename ToFrame>
 template<typename Scalar>
 Trivector<Scalar, ToFrame> Rotation<FromFrame, ToFrame>::operator()(
     Trivector<Scalar, FromFrame> const& trivector) const {
-  return trivector;
+  return Trivector<Scalar, ToFrame>(trivector.coordinates());
+}
+
+template<typename FromFrame, typename ToFrame>
+template<typename Scalar>
+SymmetricBilinearForm<Scalar, ToFrame> Rotation<FromFrame, ToFrame>::operator()(
+    SymmetricBilinearForm<Scalar, FromFrame> const& form) const {
+  // If R is the rotation and F the form, we compute R * F * R⁻¹.  Note however
+  // that we only have mechanisms for applying rotations to column vectors.  If
+  // r is a row of F, we first compute the corresponding row of the intermediate
+  // matrix F * R⁻¹ as R * ᵗr.  We then transpose the intermediate matrix and
+  // multiply each column by R.
+  R3x3Matrix<Scalar> const& form_coordinates = form.coordinates();
+
+  // The matrix is symmetric, so what you call rows I call columns.
+  Vector<Scalar, FromFrame> const column_x(form_coordinates.row_x());
+  Vector<Scalar, FromFrame> const column_y(form_coordinates.row_y());
+  Vector<Scalar, FromFrame> const column_z(form_coordinates.row_z());
+
+  Vector<Scalar, ToFrame> const intermediate_row_x = (*this)(column_x);
+  Vector<Scalar, ToFrame> const intermediate_row_y = (*this)(column_y);
+  Vector<Scalar, ToFrame> const intermediate_row_z = (*this)(column_z);
+
+  R3x3Matrix<Scalar> intermediate_matrix(intermediate_row_x.coordinates(),
+                                         intermediate_row_y.coordinates(),
+                                         intermediate_row_z.coordinates());
+  intermediate_matrix = intermediate_matrix.Transpose();
+
+  // Note that transposing here effectively changes frames.
+  Vector<Scalar, FromFrame> const intermediate_column_x(
+      intermediate_matrix.row_x());
+  Vector<Scalar, FromFrame> const intermediate_column_y(
+      intermediate_matrix.row_y());
+  Vector<Scalar, FromFrame> const intermediate_column_z(
+      intermediate_matrix.row_z());
+
+  Vector<Scalar, ToFrame> const result_row_x = (*this)(intermediate_column_x);
+  Vector<Scalar, ToFrame> const result_row_y = (*this)(intermediate_column_y);
+  Vector<Scalar, ToFrame> const result_row_z = (*this)(intermediate_column_z);
+
+  R3x3Matrix<Scalar> const result_matrix(result_row_x.coordinates(),
+                                         result_row_y.coordinates(),
+                                         result_row_z.coordinates());
+
+  // The averaging below ensures that the result is symmetric.
+  // TODO(phl): Investigate if using a Cholesky or LDL decomposition would help
+  // preserve symmetry and/or definiteness.
+  return SymmetricBilinearForm<Scalar, ToFrame>(
+          0.5 * (result_matrix + result_matrix.Transpose()));
 }
 
 template<typename FromFrame, typename ToFrame>
@@ -216,8 +266,11 @@ Rotation<FromFrame, ToFrame>::operator()(T const& t) const {
 }
 
 template<typename FromFrame, typename ToFrame>
-OrthogonalMap<FromFrame, ToFrame> Rotation<FromFrame, ToFrame>::Forget() const {
-  return OrthogonalMap<FromFrame, ToFrame>(Sign(1), *this);
+template<template<typename, typename> typename LinearMap>
+LinearMap<FromFrame, ToFrame> Rotation<FromFrame, ToFrame>::Forget() const {
+  static_assert(is_same_template_v<LinearMap, OrthogonalMap>,
+                "Unable to forget rotation");
+  return OrthogonalMap<FromFrame, ToFrame>(quaternion_);
 }
 
 template<typename FromFrame, typename ToFrame>
@@ -238,6 +291,7 @@ void Rotation<FromFrame, ToFrame>::WriteToMessage(
 }
 
 template<typename FromFrame, typename ToFrame>
+template<typename, typename, typename>
 Rotation<FromFrame, ToFrame> Rotation<FromFrame, ToFrame>::ReadFromMessage(
     serialization::LinearMap const& message) {
   LinearMap<FromFrame, ToFrame>::ReadFromMessage(message);
@@ -253,6 +307,7 @@ void Rotation<FromFrame, ToFrame>::WriteToMessage(
 }
 
 template<typename FromFrame, typename ToFrame>
+template<typename, typename, typename>
 Rotation<FromFrame, ToFrame> Rotation<FromFrame, ToFrame>::ReadFromMessage(
     serialization::Rotation const& message) {
   return Rotation(Quaternion::ReadFromMessage(message.quaternion()));

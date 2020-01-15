@@ -37,7 +37,7 @@ class StackTraceDecoder {
   private static string ParseLine(IntPtr handle, IMAGEHLP_LINEW64 line,
                                   SYMBOL_INFOW symbol,
                                   string commit, bool snippets) {
-    var file_regex = new Regex(@".*\\principia\\([a-z_]+)\\(\S+)");
+    var file_regex = new Regex(@".*\\[Pp]rincipia\\([a-z_]+)\\(\S+)");
     Match file_match = file_regex.Match(line.FileName);
     if (!file_match.Success) {
       return null;
@@ -47,7 +47,7 @@ class StackTraceDecoder {
     int? start_line_number = line.LineNumber;
 
     SymGetLineFromAddrW64(
-        handle, symbol.Address, out Int32 displacement, line);
+        handle, symbol.Address, out int displacement, line);
     Match symbol_file_match = file_regex.Match(line.FileName);
     if (symbol_file_match.Success &&
         $@"{symbol_file_match.Groups[1]}/{
@@ -56,7 +56,7 @@ class StackTraceDecoder {
       start_line_number = line.LineNumber;
     }
 
-    string url = System.Uri.EscapeUriString(
+    string url = Uri.EscapeUriString(
         $@"https://github.com/mockingbirdnest/Principia/blob/{commit}/{file}#{
            (start_line_number.HasValue ? $"L{start_line_number}-"
                                        : "")}L{line_number}");
@@ -126,7 +126,7 @@ class StackTraceDecoder {
                                   Encoding.UTF8);
     if (!unity_crash) {
       var version_regex = new Regex(
-          @"^I.*\] Principia version " + 
+          @"^I.*\] Principia version " +
           @"([0-9]{10}-\w+)-[0-9]+-g([0-9a-f]{40})(-dirty)? built");
       Match version_match;
       do {
@@ -134,7 +134,6 @@ class StackTraceDecoder {
               $"Could not find Principia version line in {info_file_uri}");
         version_match = version_regex.Match(stream.ReadLine());
       } while (!version_match.Success);
-      string tag = version_match.Groups[1].ToString();
       commit = version_match.Groups[2].ToString();
       bool dirty = version_match.Groups[3].Success;
       if (dirty) {
@@ -148,16 +147,8 @@ class StackTraceDecoder {
                            @"\(([0-9A-F]+)\)",
                        "interface\\.cpp",
                        stream);
-    Int64 physics_base_address =
-        GetBaseAddress(unity_crash,
-                       @"GameData\\Principia\\x64\\physics.dll:physics.dll " +
-                           @"\(([0-9A-F]+)\)",
-                       "ksp_physics_lib\\.cpp",
-                       stream);
     Console.Write(
         comment($"Using Principia base address {principia_base_address:X}"));
-    Console.Write(
-        comment($"Using Physics base address {physics_base_address:X}"));
     var stack_regex = new Regex(
         unity_crash ? @"0x([0-9A-F]+) .*"
                     : @"@\s+[0-9A-F]+\s+.* \[0x([0-9A-F]+)(\+[0-9]+)?\]");
@@ -176,21 +167,15 @@ class StackTraceDecoder {
     IntPtr handle = new IntPtr(1729);
     SymSetOptions(SYMOPT_LOAD_LINES);
     Win32Check(SymInitializeW(handle, null, fInvadeProcess: false));
+    string principia_dll_path =
+        Path.Combine(principia_directory, "principia.dll");
+    Win32Check(File.Exists(principia_dll_path));
     Win32Check(
         SymLoadModuleExW(handle,
                          IntPtr.Zero,
-                         Path.Combine(principia_directory, "principia.dll"),
+                         principia_dll_path,
                          null,
                          principia_base_address,
-                         0,
-                         IntPtr.Zero,
-                         0) != 0);
-    Win32Check(
-        SymLoadModuleExW(handle,
-                         IntPtr.Zero,
-                         Path.Combine(principia_directory, "physics.dll"),
-                         null,
-                         physics_base_address,
                          0,
                          IntPtr.Zero,
                          0) != 0);
@@ -202,18 +187,18 @@ class StackTraceDecoder {
       Int64 address = Convert.ToInt64(stack_match.Groups[1].ToString(), 16);
       IMAGEHLP_LINEW64 line = new IMAGEHLP_LINEW64();
       SYMBOL_INFOW symbol = new SYMBOL_INFOW();
-      Int32 inline_trace = SymAddrIncludeInlineTrace(handle, address);
+      int inline_trace = SymAddrIncludeInlineTrace(handle, address);
       if (inline_trace != 0) {
         Win32Check(SymQueryInlineTrace(handle,
                                        address,
                                        0,
                                        address,
                                        address,
-                                       out Int32 current_context,
-                                       out Int32 current_frame_index));
+                                       out int current_context,
+                                       out int current_frame_index));
         for (int i = 0; i < inline_trace; ++i) {
           Win32Check(SymGetLineFromInlineContextW(
-              handle, address, current_context + i, 0, out Int32 dsp, line));
+              handle, address, current_context + i, 0, out int dsp, line));
           Win32Check(SymFromInlineContextW(handle,
                                            address,
                                            current_context + i,
@@ -225,7 +210,7 @@ class StackTraceDecoder {
       }
       if (SymGetLineFromAddrW64(handle,
                                 address,
-                                out Int32 displacement,
+                                out int displacement,
                                 line)) {
         Win32Check(
             SymFromAddrW(handle, address, out Int64 displacement64, symbol));
@@ -244,7 +229,7 @@ class StackTraceDecoder {
 
   private static void PrintUsage() {
     Console.WriteLine("Usage: stacktrace_decoder " +
-                      "<info_file_uri> <principia_directory> " +
+                      "<info_file_uri> <principia_dll_directory> " +
                       "[--unity-crash-at-commit=<sha1>] " +
                       "[--no-comment] [--no-snippet]");
   }

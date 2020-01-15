@@ -145,6 +145,12 @@ message HierarchicalSystem {
   required Subsystem system = 1;
 }
 
+message InertiaTensor {
+  required Quantity mass = 1;
+  required SymmetricBilinearForm form = 2;
+  required Point centre_of_mass = 3;
+}
+
 message KeplerianElements {
   required Frame frame = 1;
   optional double eccentricity = 2;
@@ -188,7 +194,11 @@ message OblateBody {
     message GeopotentialRow {
       message GeopotentialColumn {
         required int32 order = 1;
-        required double cos = 2;
+        // j can only be set if order is 0.
+        oneof cos_j {
+          double cos = 2;
+          double j = 4;
+        }
         required double sin = 3;
       }
       // For a given |degree|, the |column| array must contain at most
@@ -210,13 +220,21 @@ message OblateBody {
   }
 }
 
+message RigidMotion {
+  required AffineMap rigid_transformation = 1;
+  required Multivector angular_velocity_of_to_frame = 2;
+  required Multivector velocity_of_to_frame_origin = 3;
+}
+
 message RotatingBody {
   extend MassiveBody {
     optional RotatingBody extension = 2002;
   }
   extensions 4000 to 4999;  // Last used: 4000.
   required Frame frame = 1;
+  optional Quantity min_radius = 9;  // Added in Del Ferro.
   required Quantity mean_radius = 5;
+  optional Quantity max_radius = 10;  // Added in Del Ferro.
   required Quantity reference_angle = 2;
   required Point reference_instant = 3;
   required Quantity angular_frequency = 6;

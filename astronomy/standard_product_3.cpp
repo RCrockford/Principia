@@ -38,13 +38,13 @@ not_null<std::unique_ptr<DiscreteTrajectory<ITRS>>> ComputeVelocities(
   CHECK_GE(arc.Size(), n);
   std::array<Instant, n> times;
   std::array<Position<ITRS>, n> positions;
-  auto it = arc.Begin();
+  auto it = arc.begin();
   for (int k = 0; k < n; ++k, ++it) {
     // TODO(egg): we should check when reading the file that the times are
     // equally spaced at the interval declared in columns 25-38 of SP3
     // line two.
-    times[k] = it.time();
-    positions[k] = it.degrees_of_freedom().position();
+    times[k] = it->time;
+    positions[k] = it->degrees_of_freedom.position();
   }
   // We use a central difference formula wherever possible, so we keep
   // |offset| at (n - 1) / 2 except at the beginning and end of the arc.
@@ -59,13 +59,13 @@ not_null<std::unique_ptr<DiscreteTrajectory<ITRS>>> ComputeVelocities(
              offset)});
     // At every iteration, either |offset| advances, or the |positions|
     // window shifts and |it| advances.
-    if (offset < (n - 1) / 2 || it == arc.End()) {
+    if (offset < (n - 1) / 2 || it == arc.end()) {
       ++offset;
     } else {
       std::move(positions.begin() + 1, positions.end(), positions.begin());
       std::move(times.begin() + 1, times.end(), times.begin());
-      times.back() = it.time();
-      positions.back()  = it.degrees_of_freedom().position();
+      times.back() = it->time;
+      positions.back()  = it->degrees_of_freedom.position();
       ++it;
     }
   }
@@ -187,7 +187,7 @@ StandardProduct3::StandardProduct3(
         }
         id.index = integer_columns(c + 1, c + 2);
         CHECK_GT(id.index, 0) << full_location;
-        auto const [it, inserted] =  // NOLINT(whitespace/braces)
+        auto const [it, inserted] =
             orbits_.emplace(std::piecewise_construct,
                             std::forward_as_tuple(id),
                             std::forward_as_tuple());
@@ -374,7 +374,7 @@ StandardProduct3::StandardProduct3(
       }
 
       // Bad or absent positional and velocity values are to be set to 0.000000.
-      if (position == ITRS::origin || velocity == Velocity<ITRS>()) {
+      if (position == ITRS::origin || velocity == ITRS::unmoving) {
         if (!arc.Empty()) {
           orbit.push_back(make_not_null_unique<DiscreteTrajectory<ITRS>>());
         }
@@ -421,14 +421,14 @@ StandardProduct3::StandardProduct3(
       }
     }
   }
-  for (auto& [id, orbit] : orbits_) {
-    auto const [it, inserted] =  // NOLINT(whitespace/braces)
+  for (auto const& [id, orbit] : orbits_) {
+    auto const [it, inserted] =
         const_orbits_.emplace(std::piecewise_construct,
                               std::forward_as_tuple(id),
                               std::forward_as_tuple());
     CHECK(inserted) << id;
     auto& const_orbit = it->second;
-    for (auto& arc : orbit) {
+    for (auto const& arc : orbit) {
       const_orbit.push_back(arc.get());
     }
   }

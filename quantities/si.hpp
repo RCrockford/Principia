@@ -1,6 +1,8 @@
 ﻿
 #pragma once
 
+#include <string>
+
 #include "quantities/named_quantities.hpp"
 #include "quantities/numbers.hpp"
 #include "quantities/quantities.hpp"
